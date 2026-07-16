@@ -1,19 +1,30 @@
+import { ReactNode } from "react";
+import Sidebar from "../components/layout/Sidebar";
+import { colors } from "../theme/colors";
+
 type Props = {
-  children: React.ReactNode;
+  children: ReactNode;
 };
 
 export default function MainLayout({ children }: Props) {
   return (
     <div
       style={{
-        minHeight: "100vh",
-        backgroundColor: "#0F172A",
-        color: "#F8FAFC",
         display: "flex",
-        flexDirection: "column",
+        background: colors.background,
+        minHeight: "100vh",
       }}
     >
-      {children}
+      <Sidebar />
+
+      <main
+        style={{
+          flex: 1,
+          padding: "32px",
+        }}
+      >
+        {children}
+      </main>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import MainLayout from "./layouts/MainLayout";
-import HomePage from "./pages/HomePage";
+import ProductsPage from "./pages/ProductsPage";
 
 function App() {
   return (
     <MainLayout>
-      <HomePage />
+      <ProductsPage />
     </MainLayout>
   );
 }

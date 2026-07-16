@@ -1,3 +1,7 @@
+import Card from "../components/ui/Card";
+import { colors } from "../theme/colors";
+import { typography } from "../theme/typography";
+
 export default function HomePage() {
   return (
     <div
@@ -9,13 +13,43 @@ export default function HomePage() {
         flexDirection: "column",
       }}
     >
-      <h1>HF CORE ERP</h1>
+      <Card>
+        <h1
+          style={{
+            color: colors.primary,
+            fontSize: typography.title,
+          }}
+        >
+          HF CORE ERP
+        </h1>
 
-      <h2>Honestly Foods CA</h2>
+        <h2
+          style={{
+            color: colors.text,
+            fontSize: typography.subtitle,
+          }}
+        >
+          Honestly Foods CA
+        </h2>
 
-      <p>Release 0.1.0</p>
+        <p
+          style={{
+            color: colors.textMuted,
+            fontSize: typography.body,
+          }}
+        >
+          Release 0.1.0
+        </p>
 
-      <p>ERP Lite para Startups y PyMEs</p>
+        <p
+          style={{
+            color: colors.textMuted,
+            fontSize: typography.body,
+          }}
+        >
+          ERP Lite para Startups y PyMEs
+        </p>
+      </Card>
     </div>
   );
 }
