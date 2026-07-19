@@ -2,38 +2,15 @@ import { colors } from "../../theme/colors";
 import { Link } from "react-router-dom";
 
 const menuItems = [
-  {
-    label: "🏠 Centro de Decisiones",
-    path: "/",
-  },
-  {
-    label: "📦 Inventario",
-    path: "/inventory",
-  },
-  {
-    label: "🏭 Producción",
-    path: "/production",
-  },
-  {
-    label: "🛒 Compras",
-    path: "/purchases",
-  },
-  {
-    label: "💰 Ventas",
-    path: "/sales",
-  },
-  {
-    label: "👥 Clientes",
-    path: "/customers",
-  },
-  {
-    label: "📈 Finanzas",
-    path: "/finance",
-  },
-  {
-    label: "⚙ Configuración",
-    path: "/settings",
-  },
+  { label: "🏠 Honestly Foods", path: "/" },
+  { label: "🎯 Centro de Decisiones", path: "/decisions" },
+  { label: "📦 Inventario", path: "/inventory" },
+  { label: "🏭 Producción", path: "/production" },
+  { label: "🛒 Compras", path: "/purchases" },
+  { label: "💰 Ventas", path: "/sales" },
+  { label: "👥 Clientes", path: "/customers" },
+  { label: "📈 Finanzas", path: "/finance" },
+  { label: "⚙ Configuración", path: "/settings" },
 ];
 
 export default function Sidebar() {
@@ -48,14 +25,7 @@ export default function Sidebar() {
         borderRight: `1px solid ${colors.border}`,
       }}
     >
-      <h2
-        style={{
-          color: colors.primary,
-          marginBottom: "32px",
-        }}
-      >
-        HF CORE ERP
-      </h2>
+      <h2 style={{ color: colors.primary, marginBottom: "32px" }}>HF CORE ERP</h2>
 
       {menuItems.map((item) => (
         <Link
