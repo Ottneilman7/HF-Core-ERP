@@ -11,6 +11,7 @@ import ProductionPage from "../pages/ProductionPage";
 import ConfigPage from "../pages/ConfigPage";
 import ComingSoonPage from "../components/ComingSoonPage";
 import PurchasesPage from "../pages/PurchasesPage";
+import SalesPage from "../pages/SalesPage";
 
 import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
@@ -34,7 +35,7 @@ export default function AppRouter() {
 
             {/* Honestidad con el usuario: existen en el menú, no en el producto todavía */}
             <Route path="/purchases" element={<PurchasesPage />} />
-            <Route path="/sales" element={<ComingSoonPage title="Ventas" description="Registro de ventas, pedidos y clientes que más te compran." />} />
+            <Route path="/sales" element={<SalesPage />} />
             <Route path="/finance" element={<ComingSoonPage title="Finanzas" description="Costeo, precio de venta y distribución de tu ganancia real." />} />
             <Route path="/marketing" element={<ComingSoonPage title="Promoción" description="Ideas de contenido y publicaciones para vender más." />} />
             {/* BP-016: Configuración real (Empresa, Parámetros, Impuestos), ya no ComingSoon */}
