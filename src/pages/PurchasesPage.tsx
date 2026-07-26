@@ -4,6 +4,7 @@ import * as rawMaterialInventoryService from "../services/rawMaterialInventorySe
 import * as recipeStockService from "../services/recipeStockService";
 import type { PurchaseOrderItem } from "../models/PurchaseOrder";
 import type { RawMaterial } from "../models/RawMaterial";
+import type { Recipe } from "../models/Recipe";
 import { FormInput } from "../components/FormInput";
 import { FormSelect } from "../components/FormSelect";
 import { FormButton } from "../components/FormButton";
@@ -15,26 +16,24 @@ type ItemKind = "rawMaterial" | "semiFinished";
  * Página: Compras (Flujo 3)
  * Ruta: /purchases
  *
- * BP-025: rawMaterialInventoryService ahora es Firestore (async) — el
- * catálogo de materia prima se carga con useEffect + estado de loading.
- * recipeStockService (semielaborados) sigue en localStorage por ahora
- * (se migra en BP-026), por eso sigue leyéndose de forma síncrona.
+ * BP-025/BP-026: rawMaterialInventoryService y recipeStockService son
+ * ahora Firestore (async) — ambos catálogos se cargan con useEffect +
+ * estado de loading propio.
  */
 export default function PurchasesPage() {
   const [suppliers, setSuppliers] = useState(purchaseService.getSuppliers());
   const [orders, setOrders] = useState(purchaseService.getPurchaseOrders());
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [loadingRawMaterials, setLoadingRawMaterials] = useState(true);
-  const semiFinishedRecipes = recipeStockService
-    .getEffectiveRecipes()
-    .filter((r) => r.active && r.tracksInventory);
+  const [semiFinishedRecipes, setSemiFinishedRecipes] = useState<Recipe[]>([]);
+  const [loadingRecipes, setLoadingRecipes] = useState(true);
 
   const [newSupplierName, setNewSupplierName] = useState("");
 
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [itemKind, setItemKind] = useState<ItemKind>("rawMaterial");
   const [selectedRawMaterialId, setSelectedRawMaterialId] = useState("");
-  const [selectedRecipeId, setSelectedRecipeId] = useState(semiFinishedRecipes[0]?.id ?? "");
+  const [selectedRecipeId, setSelectedRecipeId] = useState("");
   const [quantity, setQuantity] = useState<number>(0);
   const [unitCost, setUnitCost] = useState<number>(0);
   const [draftItems, setDraftItems] = useState<PurchaseOrderItem[]>([]);
@@ -49,9 +48,19 @@ export default function PurchasesPage() {
     setLoadingRawMaterials(false);
   }, []);
 
+  const loadSemiFinishedRecipes = useCallback(async () => {
+    setLoadingRecipes(true);
+    const all = await recipeStockService.getEffectiveRecipes();
+    const tracked = all.filter((r) => r.active && r.tracksInventory);
+    setSemiFinishedRecipes(tracked);
+    setSelectedRecipeId((prev) => prev || tracked[0]?.id || "");
+    setLoadingRecipes(false);
+  }, []);
+
   useEffect(() => {
     loadRawMaterials();
-  }, [loadRawMaterials]);
+    loadSemiFinishedRecipes();
+  }, [loadRawMaterials, loadSemiFinishedRecipes]);
 
   function refresh() {
     setSuppliers(purchaseService.getSuppliers());
@@ -98,7 +107,9 @@ export default function PurchasesPage() {
     try {
       await purchaseService.receivePurchaseOrder(orderId);
       refresh();
-      await loadRawMaterials(); // el stock recién recibido debe reflejarse de inmediato
+      // El stock recién recibido debe reflejarse de inmediato, sea de
+      // materia prima o de un semielaborado comprado de emergencia (ADR-007).
+      await Promise.all([loadRawMaterials(), loadSemiFinishedRecipes()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo recibir la orden.");
     }

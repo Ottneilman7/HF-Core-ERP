@@ -27,9 +27,6 @@ export default function SalesPage() {
   const [draftItems, setDraftItems] = useState<SaleItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const [restockProductId, setRestockProductId] = useState(products[0]?.id ?? "");
-  const [restockQuantity, setRestockQuantity] = useState<number>(0);
-
   function refresh() {
     forceRefresh((n) => n + 1);
   }
@@ -61,13 +58,6 @@ export default function SalesPage() {
     }
   }
 
-  function handleRestock() {
-    if (restockQuantity <= 0) return;
-    finishedGoodsInventoryService.increaseStock(restockProductId, restockQuantity);
-    setRestockQuantity(0);
-    refresh();
-  }
-
   const sectionStyle = {
     background: colors.surface,
     border: `1px solid ${colors.border}`,
@@ -82,50 +72,6 @@ export default function SalesPage() {
       <p style={{ color: colors.textMuted }}>
         Registra una venta: descuenta el inventario y, si es a crédito, aumenta el saldo del cliente.
       </p>
-
-      <section style={{ ...sectionStyle, borderColor: colors.warning }}>
-        <h2 style={{ color: colors.text, marginTop: 0 }}>Inventario de producto terminado</h2>
-        <p style={{ color: colors.textMuted, fontSize: "13px" }}>
-          ⚠️ Puente temporal: Producción todavía no suma aquí automáticamente al confirmar un lote (BP-014
-          Fase 2, pendiente). Usa esto para registrar manualmente lo que ya fabricaste, mientras tanto.
-        </p>
-        <ul style={{ color: colors.text, paddingLeft: "18px" }}>
-          {products.map((p) => (
-            <li key={p.id}>
-              {p.name}: {stock[p.id] ?? 0} unidades
-            </li>
-          ))}
-        </ul>
-        <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
-          <div style={{ flex: 2 }}>
-            <FormSelect
-              label="Producto"
-              value={restockProductId}
-              onChange={(e) => setRestockProductId(e.target.value)}
-            >
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </FormSelect>
-          </div>
-          <div style={{ flex: 1 }}>
-            <FormInput
-              label="Cantidad producida"
-              type="number"
-              value={restockQuantity}
-              onChange={(e) => setRestockQuantity(Number(e.target.value))}
-              min={0}
-            />
-          </div>
-          <div style={{ marginBottom: "16px" }}>
-            <FormButton type="button" variant="secondary" onClick={handleRestock}>
-              Registrar
-            </FormButton>
-          </div>
-        </div>
-      </section>
 
       <section style={sectionStyle}>
         <h2 style={{ color: colors.text, marginTop: 0 }}>Nueva venta</h2>

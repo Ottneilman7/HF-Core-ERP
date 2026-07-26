@@ -50,7 +50,7 @@ export default function ProductionPage() {
 
     try {
       const rawMaterials = await getEffectiveRawMaterials(); // BP-025: Firestore, incluye lo recibido en Compras
-      const effectiveRecipes = getEffectiveRecipes(); // BP-021: incluye stock real de semielaborados (localStorage, pendiente BP-026)
+      const effectiveRecipes = await getEffectiveRecipes(); // BP-026: incluye stock real de semielaborados (Firestore)
       const needs = calculateProductionNeeds(selectedRecipe, quantity, rawMaterials, effectiveRecipes);
       setResults(needs);
 

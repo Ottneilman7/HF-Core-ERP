@@ -31,7 +31,7 @@ export async function confirmProduction(recipe: Recipe, quantityToProduce: numbe
   }
 
   const rawMaterials = await rawMaterialInventoryService.getEffectiveRawMaterials(); // BP-025: Firestore
-  const effectiveRecipes = recipeStockService.getEffectiveRecipes(); // pendiente BP-026: sigue en localStorage
+  const effectiveRecipes = await recipeStockService.getEffectiveRecipes(); // BP-026: Firestore
 
   const needs = calculateProductionNeeds(recipe, quantityToProduce, rawMaterials, effectiveRecipes);
 
@@ -46,13 +46,13 @@ export async function confirmProduction(recipe: Recipe, quantityToProduce: numbe
     if (need.sourceType === "rawMaterial") {
       await rawMaterialInventoryService.consumeStock(need.sourceId, need.requiredQuantity);
     } else {
-      recipeStockService.decreaseStock(need.sourceId, need.requiredQuantity);
+      await recipeStockService.decreaseStock(need.sourceId, need.requiredQuantity);
     }
   }
 
   if (recipe.productId) {
     finishedGoodsInventoryService.increaseStock(recipe.productId, quantityToProduce);
   } else {
-    recipeStockService.increaseStock(recipe.id, quantityToProduce);
+    await recipeStockService.increaseStock(recipe.id, quantityToProduce);
   }
 }

@@ -1,66 +1,45 @@
 /**
- * Servicio: Stock real de Semielaborados (Recipe con tracksInventory)
+ * Servicio: Stock real de Semielaborados — Fase Firestore (BP-026)
  *
- * Mismo patrón que rawMaterialInventoryService (ADR-005): recipes.ts
- * sigue siendo la semilla — sus `currentStock: 0` son placeholders,
- * como el propio archivo ya advierte. localStorage guarda el override
- * vigente. Recipe.ts (el modelo) no se toca.
+ * Reemplaza la versión de localStorage (BP-021). Mismas funciones, ahora
+ * async, leyendo/escribiendo businesses/{CURRENT_BUSINESS_ID}/recipes.
+ * recipes.ts (la semilla) ya no se importa aquí.
  */
+import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 import type { Recipe } from "../models/Recipe";
-import { recipes as seedRecipes } from "../data/recipes";
 
-interface RecipeStockOverride {
-  currentStock: number;
-  updatedAt: string;
+function recipesCollectionRef() {
+  return collection(db, "businesses", CURRENT_BUSINESS_ID, "recipes");
 }
 
-const OVERRIDES_KEY = "hf_recipestock_overrides";
-
-function readOverrides(): Record<string, RecipeStockOverride> {
-  const raw = localStorage.getItem(OVERRIDES_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, RecipeStockOverride>;
-  } catch {
-    return {};
-  }
+function recipeDocRef(id: string) {
+  return doc(db, "businesses", CURRENT_BUSINESS_ID, "recipes", id);
 }
 
-function writeOverrides(overrides: Record<string, RecipeStockOverride>): void {
-  localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
+export async function getEffectiveRecipes(): Promise<Recipe[]> {
+  const snap = await getDocs(recipesCollectionRef());
+  return snap.docs.map((d) => d.data() as Recipe);
 }
 
-/** Devuelve TODAS las recetas (no solo las que trackean inventario) con
- * su currentStock real cuando aplica — para poder pasarlas tal cual a
- * productionCalculatorService, que espera la lista completa. */
-export function getEffectiveRecipes(): Recipe[] {
-  const overrides = readOverrides();
-  return seedRecipes.map((r) => {
-    const override = overrides[r.id];
-    if (!override) return r;
-    return { ...r, currentStock: override.currentStock };
-  });
+export async function getRecipeById(id: string): Promise<Recipe | undefined> {
+  const snap = await getDoc(recipeDocRef(id));
+  return snap.exists() ? (snap.data() as Recipe) : undefined;
 }
 
-export function getRecipeById(id: string): Recipe | undefined {
-  return getEffectiveRecipes().find((r) => r.id === id);
-}
-
-export function increaseStock(recipeId: string, quantity: number): void {
-  const current = getRecipeById(recipeId);
+export async function increaseStock(recipeId: string, quantity: number): Promise<void> {
+  const current = await getRecipeById(recipeId);
   if (!current) {
     throw new Error(`Receta no encontrada: ${recipeId}`);
   }
-  const overrides = readOverrides();
-  overrides[recipeId] = {
+  await setDoc(recipeDocRef(recipeId), {
+    ...current,
     currentStock: (current.currentStock ?? 0) + quantity,
-    updatedAt: new Date().toISOString(),
-  };
-  writeOverrides(overrides);
+  });
 }
 
-export function decreaseStock(recipeId: string, quantity: number): void {
-  const current = getRecipeById(recipeId);
+export async function decreaseStock(recipeId: string, quantity: number): Promise<void> {
+  const current = await getRecipeById(recipeId);
   if (!current) {
     throw new Error(`Receta no encontrada: ${recipeId}`);
   }
@@ -68,10 +47,8 @@ export function decreaseStock(recipeId: string, quantity: number): void {
   if (quantity > available) {
     throw new Error(`Inventario insuficiente de ${current.name ?? recipeId} (disponible: ${available}).`);
   }
-  const overrides = readOverrides();
-  overrides[recipeId] = {
+  await setDoc(recipeDocRef(recipeId), {
+    ...current,
     currentStock: available - quantity,
-    updatedAt: new Date().toISOString(),
-  };
-  writeOverrides(overrides);
+  });
 }

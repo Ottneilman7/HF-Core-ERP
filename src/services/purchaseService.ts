@@ -109,7 +109,7 @@ export async function receivePurchaseOrder(orderId: string): Promise<PurchaseOrd
     if (item.rawMaterialId) {
       await rawMaterialInventoryService.receiveStock(item.rawMaterialId, item.quantity, item.unitCost);
     } else if (item.componentRecipeId) {
-      recipeStockService.increaseStock(item.componentRecipeId, item.quantity);
+      await recipeStockService.increaseStock(item.componentRecipeId, item.quantity);
     }
   }
 

@@ -1,15 +1,24 @@
 import Card from "../components/ui/Card";
 import StatCard from "../components/dashboard/StatCard";
 
-import { customers } from "../data/customers";
+import * as customerBalanceService from "../services/customerBalanceService";
 
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
 
+/**
+ * Fix (encontrado antes de BP-026): esta página leía `data/customers.ts`
+ * directo — nunca reflejaba ventas a crédito ni pagos registrados desde
+ * BP-019/BP-020. Se migra a customerBalanceService.getEffectiveCustomers()
+ * (sigue en localStorage por ahora; Clientes/Ventas se migra a Firestore
+ * más adelante, después de Recetas/Semielaborados).
+ */
 export default function CustomersPage() {
-  const activeCustomers = customers.filter(c => c.active).length;
+  const customers = customerBalanceService.getEffectiveCustomers();
+
+  const activeCustomers = customers.filter((c) => c.active).length;
   const priorityCustomers = customers.filter(
-  customer => customer.priority === "HIGH"
+    (customer) => customer.priority === "HIGH"
   ).length;
 
   const totalBalance = customers.reduce(
@@ -37,7 +46,7 @@ export default function CustomersPage() {
           marginBottom: "30px",
         }}
       >
-      
+
         <StatCard
           title="Clientes"
           value={customers.length}
@@ -51,6 +60,11 @@ export default function CustomersPage() {
         <StatCard
           title="Prioritarios"
           value={priorityCustomers}
+        />
+
+        <StatCard
+          title="Saldo total por cobrar"
+          value={`$${totalBalance.toFixed(2)}`}
         />
       </div>
 
@@ -81,7 +95,7 @@ export default function CustomersPage() {
             </p>
 
             <p>
-              <strong>Saldo:</strong> ${customer.balance}
+              <strong>Saldo:</strong> ${customer.balance.toFixed(2)}
             </p>
           </Card>
         ))}
