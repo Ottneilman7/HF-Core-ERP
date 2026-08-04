@@ -1,7 +1,10 @@
 export type PaymentType = "cash" | "credit";
+export type SaleStatus = "active" | "voided";
 
 export interface SaleItem {
-  productId: string;
+  productId?: string;
+  componentRecipeId?: string;
+  rawMaterialId?: string;
   quantity: number;
   unitPrice: number;
 }
@@ -12,5 +15,6 @@ export interface Sale {
   items: SaleItem[];
   paymentType: PaymentType;
   total: number;
-  createdAt: string; // ISO date
+  status: SaleStatus;
+  createdAt: string;
 }

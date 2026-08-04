@@ -1,60 +1,86 @@
 /**
- * Servicio: Cobranza (Flujo 6 — Cuentas por cobrar → Pagos → Saldos)
- *
- * Reutiliza customerBalanceService.adjustBalance (ya existente desde
- * BP-019) con monto negativo: un pago reduce el saldo que el cliente debe.
+ * Servicio: Cobranza. Registra datos completos del pago (método,
+ * referencia, instituciones). El comprobante (foto/PDF) queda pendiente
+ * de conectar a Firebase Storage — por ahora se guarda solo el registro
+ * de texto, sin archivo (ver nota en FinancePage.tsx).
  */
-import type { Payment } from "../models/Payment";
+import { collection, doc, getDocs, setDoc, writeBatch } from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
+import type { Payment, PaymentMethod } from "../models/Payment";
 import * as customerBalanceService from "./customerBalanceService";
 
-const PAYMENTS_KEY = "hf_payments";
+function paymentsCollectionRef() {
+  return collection(db, "businesses", CURRENT_BUSINESS_ID, "payments");
+}
 
-function readPayments(): Payment[] {
-  const raw = localStorage.getItem(PAYMENTS_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as Payment[];
-  } catch {
-    return [];
+export async function getPayments(): Promise<Payment[]> {
+  const snap = await getDocs(paymentsCollectionRef());
+  return snap.docs.map((d) => d.data() as Payment);
+}
+
+export async function getPaymentById(id: string): Promise<Payment | undefined> {
+  return (await getPayments()).find((p) => p.id === id);
+}
+
+export async function getPaymentsByCustomer(customerId: string): Promise<Payment[]> {
+  return (await getPayments()).filter((p) => p.customerId === customerId);
+}
+
+export async function updatePayment(id: string, updates: Partial<Omit<Payment, "id" | "customerId" | "createdAt">>): Promise<void> {
+  const current = await getPaymentById(id);
+  if (!current) {
+    throw new Error(`Pago no encontrado: ${id}`);
   }
+  await setDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "payments", id), updates, { merge: true });
 }
 
-function writePayments(payments: Payment[]): void {
-  localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+export interface RegisterPaymentInput {
+  customerId: string;
+  amount: number;
+  method: PaymentMethod;
+  paymentDate: string; // fecha/hora real del pago, la indica el usuario
+  referenceNumber?: string;
+  originInstitution?: string;
+  destinationInstitution?: string;
+  note?: string;
 }
 
-export function getPayments(): Payment[] {
-  return readPayments();
-}
-
-export function getPaymentsByCustomer(customerId: string): Payment[] {
-  return readPayments().filter((p) => p.customerId === customerId);
-}
-
-/**
- * Registra un pago y reduce el saldo del cliente. No exige que el monto
- * sea exactamente igual al saldo pendiente (permite abonos parciales);
- * sí exige que sea positivo.
- */
-export function registerPayment(customerId: string, amount: number, note?: string): Payment {
-  if (amount <= 0) {
-    throw new Error("El monto del pago debe ser mayor a cero.");
+export async function registerPayment(input: RegisterPaymentInput): Promise<Payment> {
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    throw new Error("El monto del pago debe ser un número mayor a cero.");
   }
 
-  const customer = customerBalanceService.getCustomerById(customerId);
+  const customer = await customerBalanceService.getCustomerById(input.customerId);
   if (!customer) {
-    throw new Error(`Cliente no encontrado: ${customerId}`);
+    throw new Error(`Cliente no encontrado: ${input.customerId}`);
   }
 
-  customerBalanceService.adjustBalance(customerId, -amount);
+  const safeCurrentBalance = Number.isFinite(customer.balance) ? customer.balance : 0;
+  const newBalance = Math.round((safeCurrentBalance - input.amount) * 100) / 100;
 
   const payment: Payment = {
     id: crypto.randomUUID(),
-    customerId,
-    amount,
-    note,
+    customerId: input.customerId,
+    amount: input.amount,
+    method: input.method,
+    paymentDate: input.paymentDate,
+    referenceNumber: input.referenceNumber,
+    originInstitution: input.originInstitution,
+    destinationInstitution: input.destinationInstitution,
+    note: input.note,
     createdAt: new Date().toISOString(),
   };
-  writePayments([...readPayments(), payment]);
+
+  // Atómico: si uno de los dos escritos falla, no se aplica ninguno —
+  // evita el caso real (Fit Market) donde el saldo cambió pero el pago
+  // nunca quedó registrado, por interrumpirse entre los dos pasos.
+  const batch = writeBatch(db);
+  batch.set(doc(db, "businesses", CURRENT_BUSINESS_ID, "customers", input.customerId), {
+    ...customer,
+    balance: newBalance,
+  });
+  batch.set(doc(db, "businesses", CURRENT_BUSINESS_ID, "payments", payment.id), payment);
+  await batch.commit();
+
   return payment;
 }

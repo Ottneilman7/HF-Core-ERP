@@ -15,6 +15,9 @@ import SalesPage from "../pages/SalesPage";
 import FinancePage from "../pages/FinancePage";
 import MarketingPage from "../pages/MarketingPage";
 import LoginPage from "../pages/LoginPage";
+import InvoicesPage from "../pages/InvoicesPage";
+import PaymentsPage from "../pages/PaymentsPage";
+import OrdersPage from "../pages/OrdersPage";
 
 import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
@@ -61,7 +64,10 @@ function AuthGate() {
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/production" element={<ProductionPage />} />
             <Route path="/customers" element={<CustomersPage />} />
-            
+            <Route path="/invoices" element={<InvoicesPage />} />
+            <Route path="/payments" element={<PaymentsPage />} />
+            <Route path="/orders" element={<OrdersPage />} />
+
             {/* Honestidad con el usuario: existen en el menú, no en el producto todavía */}
             <Route path="/purchases" element={<PurchasesPage />} />
             <Route path="/sales" element={<SalesPage />} />

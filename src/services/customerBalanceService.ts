@@ -1,57 +1,60 @@
 /**
- * Servicio: Saldo real de Cliente (Cuentas por Cobrar)
- *
- * Mismo patrón que rawMaterialInventoryService (ADR-005): customers.ts
- * sigue siendo la semilla; localStorage guarda el override vigente de
- * `balance`. Customer.ts (el modelo) no se toca.
+ * Servicio: Clientes y saldo real — Fase Firestore (BP-032).
+ * Reemplaza el patrón semilla+overrides de localStorage. Firestore es
+ * ahora la única fuente de verdad para el catálogo de clientes.
  */
+import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 import type { Customer } from "../models/Customer";
-import { customers as seedCustomers } from "../data/customers";
 
-interface BalanceOverride {
-  balance: number;
-  updatedAt: string;
+function customersCollectionRef() {
+  return collection(db, "businesses", CURRENT_BUSINESS_ID, "customers");
+}
+function customerDocRef(id: string) {
+  return doc(db, "businesses", CURRENT_BUSINESS_ID, "customers", id);
 }
 
-const OVERRIDES_KEY = "hf_customer_balance_overrides";
+export async function getEffectiveCustomers(): Promise<Customer[]> {
+  const snap = await getDocs(customersCollectionRef());
+  return snap.docs.map((d) => d.data() as Customer);
+}
 
-function readOverrides(): Record<string, BalanceOverride> {
-  const raw = localStorage.getItem(OVERRIDES_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, BalanceOverride>;
-  } catch {
-    return {};
+export async function getCustomerById(id: string): Promise<Customer | undefined> {
+  const snap = await getDoc(customerDocRef(id));
+  return snap.exists() ? (snap.data() as Customer) : undefined;
+}
+
+export async function createCustomer(
+  input: Omit<Customer, "id" | "balance" | "lastPurchase" | "active">
+): Promise<Customer> {
+  const newCustomer: Customer = {
+    ...input,
+    id: crypto.randomUUID(),
+    balance: 0,
+    lastPurchase: "",
+    active: true,
+  };
+  await setDoc(customerDocRef(newCustomer.id), newCustomer);
+  return newCustomer;
+}
+
+export async function updateCustomer(id: string, updates: Partial<Omit<Customer, "id">>): Promise<void> {
+  const current = await getCustomerById(id);
+  if (!current) {
+    throw new Error(`Cliente no encontrado: ${id}`);
   }
+  await setDoc(customerDocRef(id), { ...current, ...updates });
 }
 
-function writeOverrides(overrides: Record<string, BalanceOverride>): void {
-  localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
-}
-
-export function getEffectiveCustomers(): Customer[] {
-  const overrides = readOverrides();
-  return seedCustomers.map((c) => {
-    const override = overrides[c.id];
-    if (!override) return c;
-    return { ...c, balance: override.balance };
-  });
-}
-
-export function getCustomerById(id: string): Customer | undefined {
-  return getEffectiveCustomers().find((c) => c.id === id);
-}
-
-/** Suma (o resta, con monto negativo) al saldo vigente del cliente. */
-export function adjustBalance(customerId: string, amount: number): void {
-  const current = getCustomerById(customerId);
+export async function adjustBalance(customerId: string, amount: number): Promise<void> {
+  const current = await getCustomerById(customerId);
   if (!current) {
     throw new Error(`Cliente no encontrado: ${customerId}`);
   }
-  const overrides = readOverrides();
-  overrides[customerId] = {
-    balance: current.balance + amount,
-    updatedAt: new Date().toISOString(),
-  };
-  writeOverrides(overrides);
+  if (!Number.isFinite(amount)) {
+    throw new Error(`Monto de ajuste inválido para ${customerId} (probablemente un dato faltante en una factura antigua).`);
+  }
+  const safeCurrentBalance = Number.isFinite(current.balance) ? current.balance : 0;
+  const newBalance = Math.round((safeCurrentBalance + amount) * 100) / 100;
+  await setDoc(customerDocRef(customerId), { ...current, balance: newBalance });
 }

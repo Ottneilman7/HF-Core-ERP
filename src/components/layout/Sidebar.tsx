@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 
 const menuItems = [
   { label: "🏠 Honestly Foods", path: "/" },
-  { label: "🎯 Centro de Decisiones", path: "/decisions" },
+  { label: "🛒 Compras", path: "/purchases" },
   { label: "📦 Inventario", path: "/inventory" },
   { label: "🏭 Producción", path: "/production" },
-  { label: "🛒 Compras", path: "/purchases" },
   { label: "💰 Ventas", path: "/sales" },
   { label: "👥 Clientes", path: "/customers" },
   { label: "📈 Finanzas", path: "/finance" },
+  { label: "🎯 Centro de Decisiones", path: "/decisions" },
   { label: "⚙ Configuración", path: "/settings" },
 ];
 

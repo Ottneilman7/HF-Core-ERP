@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import * as purchaseService from "../services/purchaseService";
 import * as rawMaterialInventoryService from "../services/rawMaterialInventoryService";
 import * as recipeStockService from "../services/recipeStockService";
 import type { PurchaseOrderItem } from "../models/PurchaseOrder";
+import type { Supplier } from "../models/Supplier";
 import type { RawMaterial } from "../models/RawMaterial";
 import type { Recipe } from "../models/Recipe";
 import { FormInput } from "../components/FormInput";
@@ -21,23 +23,55 @@ type ItemKind = "rawMaterial" | "semiFinished";
  * estado de loading propio.
  */
 export default function PurchasesPage() {
-  const [suppliers, setSuppliers] = useState(purchaseService.getSuppliers());
-  const [orders, setOrders] = useState(purchaseService.getPurchaseOrders());
+  const [suppliers, setSuppliers] = useState<Awaited<ReturnType<typeof purchaseService.getSuppliers>>>([]);
+  const [orders, setOrders] = useState<Awaited<ReturnType<typeof purchaseService.getPurchaseOrders>>>([]);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [loadingRawMaterials, setLoadingRawMaterials] = useState(true);
   const [semiFinishedRecipes, setSemiFinishedRecipes] = useState<Recipe[]>([]);
   const [loadingRecipes, setLoadingRecipes] = useState(true);
 
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
+  const [suppliersOpen, setSuppliersOpen] = useState(false);
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const [ordersOpen, setOrdersOpen] = useState(false);
   const [newSupplierName, setNewSupplierName] = useState("");
+  const [newSupplierTradeName, setNewSupplierTradeName] = useState("");
+  const [newSupplierTaxId, setNewSupplierTaxId] = useState("");
+  const [newSupplierContact, setNewSupplierContact] = useState("");
+  const [newSupplierPhone, setNewSupplierPhone] = useState("");
+  const [newSupplierCity, setNewSupplierCity] = useState("");
+  const [newSupplierAddress, setNewSupplierAddress] = useState("");
+
+  const [ordersNewestFirst, setOrdersNewestFirst] = useState(true);
+  const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
+  const [editSupplierForm, setEditSupplierForm] = useState<Partial<Supplier>>({});
+
+  function startEditSupplier(s: Supplier) {
+    setEditingSupplierId(s.id);
+    setEditSupplierForm(s);
+  }
+
+  async function saveEditSupplier() {
+    if (!editingSupplierId) return;
+    await purchaseService.updateSupplier(editingSupplierId, editSupplierForm);
+    setEditingSupplierId(null);
+    await refresh();
+  }
 
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [itemKind, setItemKind] = useState<ItemKind>("rawMaterial");
   const [selectedRawMaterialId, setSelectedRawMaterialId] = useState("");
   const [selectedRecipeId, setSelectedRecipeId] = useState("");
+  const [captureUnit, setCaptureUnit] = useState<"g" | "kg">("kg");
   const [quantity, setQuantity] = useState<number>(0);
   const [unitCost, setUnitCost] = useState<number>(0);
+  const [isVatExempt, setIsVatExempt] = useState(false);
   const [draftItems, setDraftItems] = useState<PurchaseOrderItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("");
+  const [paymentTerm, setPaymentTerm] = useState<"cash" | "credit">("cash");
 
   const loadRawMaterials = useCallback(async () => {
     setLoadingRawMaterials(true);
@@ -57,37 +91,60 @@ export default function PurchasesPage() {
     setLoadingRecipes(false);
   }, []);
 
+  const refresh = useCallback(async () => {
+    setSuppliers(await purchaseService.getSuppliers());
+    setOrders(await purchaseService.getPurchaseOrders());
+  }, []);
+
   useEffect(() => {
     loadRawMaterials();
     loadSemiFinishedRecipes();
-  }, [loadRawMaterials, loadSemiFinishedRecipes]);
-
-  function refresh() {
-    setSuppliers(purchaseService.getSuppliers());
-    setOrders(purchaseService.getPurchaseOrders());
-  }
-
-  function handleAddSupplier() {
-    if (!newSupplierName.trim()) return;
-    purchaseService.createSupplier(newSupplierName);
-    setNewSupplierName("");
     refresh();
+  }, [loadRawMaterials, loadSemiFinishedRecipes, refresh]);
+
+  async function handleAddSupplier() {
+    if (!newSupplierName.trim()) return;
+    await purchaseService.createSupplier({
+      name: newSupplierName,
+      tradeName: newSupplierTradeName || undefined,
+      taxId: newSupplierTaxId || undefined,
+      contactName: newSupplierContact || undefined,
+      phone: newSupplierPhone || undefined,
+      city: newSupplierCity || undefined,
+      address: newSupplierAddress || undefined,
+    });
+    setNewSupplierName("");
+    setNewSupplierTradeName("");
+    setNewSupplierTaxId("");
+    setNewSupplierContact("");
+    setNewSupplierPhone("");
+    setNewSupplierCity("");
+    setNewSupplierAddress("");
+    setShowNewSupplier(false);
+    await refresh();
   }
 
   function handleAddItemToDraft() {
     if (quantity <= 0) return;
+    // Conversión: el usuario captura en Kg (como le dan el precio normalmente)
+    // o en Gr; el catálogo siempre vive en Gramos, así que se convierte aquí
+    // una sola vez, para no obligar a calcular precio-por-gramo a mano.
+    const quantityInGrams = captureUnit === "kg" ? quantity * 1000 : quantity;
+    const costPerGram = captureUnit === "kg" ? unitCost / 1000 : unitCost;
+
     if (itemKind === "rawMaterial") {
       if (!selectedRawMaterialId) return;
-      setDraftItems([...draftItems, { rawMaterialId: selectedRawMaterialId, quantity, unitCost }]);
+      setDraftItems([...draftItems, { rawMaterialId: selectedRawMaterialId, quantity: quantityInGrams, unitCost: costPerGram, isVatExempt }]);
     } else {
       if (!selectedRecipeId) return;
-      setDraftItems([...draftItems, { componentRecipeId: selectedRecipeId, quantity, unitCost }]);
+      setDraftItems([...draftItems, { componentRecipeId: selectedRecipeId, quantity: quantityInGrams, unitCost: costPerGram, isVatExempt }]);
     }
     setQuantity(0);
     setUnitCost(0);
+    setIsVatExempt(false);
   }
 
-  function handleCreateOrder() {
+  async function handleCreateOrder() {
     setError(null);
     if (!selectedSupplierId) {
       setError("Selecciona un proveedor antes de crear la orden.");
@@ -97,16 +154,23 @@ export default function PurchasesPage() {
       setError("Agrega al menos un ítem antes de crear la orden.");
       return;
     }
-    purchaseService.createPurchaseOrder(selectedSupplierId, draftItems);
+    await purchaseService.createPurchaseOrder(
+      selectedSupplierId,
+      draftItems,
+      purchaseDate,
+      paymentTerm,
+      supplierInvoiceNumber || undefined
+    );
     setDraftItems([]);
-    refresh();
+    setSupplierInvoiceNumber("");
+    await refresh();
   }
 
   async function handleReceive(orderId: string) {
     setError(null);
     try {
       await purchaseService.receivePurchaseOrder(orderId);
-      refresh();
+      await refresh();
       // El stock recién recibido debe reflejarse de inmediato, sea de
       // materia prima o de un semielaborado comprado de emergencia (ADR-007).
       await Promise.all([loadRawMaterials(), loadSemiFinishedRecipes()]);
@@ -116,18 +180,21 @@ export default function PurchasesPage() {
   }
 
   function itemLabel(item: PurchaseOrderItem): string {
+    let base: string;
     if (item.rawMaterialId) {
-      return rawMaterials.find((rm) => rm.id === item.rawMaterialId)?.name ?? item.rawMaterialId;
-    }
-    if (item.componentRecipeId) {
+      base = rawMaterials.find((rm) => rm.id === item.rawMaterialId)?.name ?? item.rawMaterialId;
+    } else if (item.componentRecipeId) {
       const recipe = semiFinishedRecipes.find((r) => r.id === item.componentRecipeId);
-      return `${recipe?.name ?? item.componentRecipeId} (semielaborado, comprado ya hecho)`;
+      base = `${recipe?.name ?? item.componentRecipeId} (semielaborado, comprado ya hecho)`;
+    } else {
+      base = "Ítem desconocido";
     }
-    return "Ítem desconocido";
+    return item.isVatExempt ? `${base} (exento de IVA)` : base;
   }
 
   function supplierName(id: string): string {
-    return suppliers.find((s) => s.id === id)?.name ?? id;
+    const s = suppliers.find((sup) => sup.id === id);
+    return s ? s.tradeName || s.name : id;
   }
 
   const sectionStyle = {
@@ -149,34 +216,109 @@ export default function PurchasesPage() {
         <p style={{ color: colors.danger, marginBottom: "16px" }}>⚠️ {error}</p>
       )}
 
-      <section style={sectionStyle}>
-        <h2 style={{ color: colors.text, marginTop: 0 }}>Proveedores</h2>
-        {suppliers.length > 0 && (
-          <ul style={{ color: colors.text, paddingLeft: "18px" }}>
-            {suppliers.map((s) => (
-              <li key={s.id}>{s.name}</li>
-            ))}
-          </ul>
-        )}
-        <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
-          <div style={{ flex: 1 }}>
-            <FormInput
-              label="Nuevo proveedor"
-              placeholder="ej. Distribuidora El Trigal"
-              value={newSupplierName}
-              onChange={(e) => setNewSupplierName(e.target.value)}
-            />
-          </div>
-          <div style={{ marginBottom: "16px" }}>
-            <FormButton type="button" variant="secondary" onClick={handleAddSupplier}>
-              Agregar
+      <section style={{ ...sectionStyle, padding: 0, overflow: "hidden" }}>
+        <div
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 24px", cursor: "pointer" }}
+          onClick={() => setSuppliersOpen(!suppliersOpen)}
+        >
+          <h2 style={{ color: colors.text, margin: 0 }}>Proveedores</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <FormButton
+              type="button"
+              variant="secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowNewSupplier(!showNewSupplier);
+                setSuppliersOpen(true);
+              }}
+            >
+              {showNewSupplier ? "Cancelar" : "+ Nuevo proveedor"}
             </FormButton>
+            <span style={{ color: colors.textMuted, fontSize: "20px" }}>{suppliersOpen ? "▲" : "▼"}</span>
           </div>
         </div>
+
+        {suppliersOpen && (
+          <div style={{ padding: "0 24px 24px" }}>
+            {suppliers.length > 0 && (
+              <div style={{ marginBottom: "16px" }}>
+                {suppliers.map((s) => (
+                  <div key={s.id} style={{ background: colors.card, borderRadius: "10px", padding: "12px 16px", marginBottom: "8px" }}>
+                    {editingSupplierId === s.id ? (
+                      <div>
+                        <FormInput label="Razón social" value={editSupplierForm.name ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, name: e.target.value })} />
+                        <FormInput label="Denominación comercial" value={editSupplierForm.tradeName ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, tradeName: e.target.value })} />
+                        <FormInput label="RIF/CI" value={editSupplierForm.taxId ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, taxId: e.target.value })} />
+                        <FormInput label="Contacto" value={editSupplierForm.contactName ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, contactName: e.target.value })} />
+                        <FormInput label="Teléfono" value={editSupplierForm.phone ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, phone: e.target.value })} />
+                        <FormInput label="Ciudad" value={editSupplierForm.city ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, city: e.target.value })} />
+                        <FormInput label="Dirección" value={editSupplierForm.address ?? ""} onChange={(e) => setEditSupplierForm({ ...editSupplierForm, address: e.target.value })} />
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <FormButton type="button" onClick={saveEditSupplier}>Guardar</FormButton>
+                          <FormButton type="button" variant="secondary" onClick={() => setEditingSupplierId(null)}>Cancelar</FormButton>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: colors.text }}>{s.tradeName || s.name}</span>
+                        <button onClick={() => startEditSupplier(s)} style={{ background: "transparent", border: `1px solid ${colors.border}`, color: colors.text, borderRadius: "8px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}>
+                          Editar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showNewSupplier && (
+              <div style={{ background: colors.card, borderRadius: "10px", padding: "16px" }}>
+                <FormInput label="Razón social" value={newSupplierName} onChange={(e) => setNewSupplierName(e.target.value)} />
+                <FormInput label="Denominación comercial (opcional)" value={newSupplierTradeName} onChange={(e) => setNewSupplierTradeName(e.target.value)} />
+                <FormInput label="RIF/CI" value={newSupplierTaxId} onChange={(e) => setNewSupplierTaxId(e.target.value)} />
+                <FormInput label="Contacto" value={newSupplierContact} onChange={(e) => setNewSupplierContact(e.target.value)} />
+                <FormInput label="Teléfono" value={newSupplierPhone} onChange={(e) => setNewSupplierPhone(e.target.value)} />
+                <FormInput label="Ciudad" value={newSupplierCity} onChange={(e) => setNewSupplierCity(e.target.value)} />
+                <FormInput label="Dirección" value={newSupplierAddress} onChange={(e) => setNewSupplierAddress(e.target.value)} />
+                <FormButton type="button" onClick={handleAddSupplier}>Guardar proveedor</FormButton>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       <section style={sectionStyle}>
-        <h2 style={{ color: colors.text, marginTop: 0 }}>Nueva orden de compra</h2>
+        <button
+          onClick={() => setNewOrderOpen(!newOrderOpen)}
+          style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: 0 }}
+        >
+          <h2 style={{ color: colors.text, margin: 0 }}>Nueva orden de compra</h2>
+          <span style={{ color: colors.textMuted, fontSize: "20px" }}>{newOrderOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {newOrderOpen && (
+        <div style={{ marginTop: "16px" }}>
+        <div style={{ display: "flex", gap: "12px" }}>
+          <div style={{ flex: 1 }}>
+            <FormInput
+              label="Fecha de la factura"
+              type="date"
+              value={purchaseDate}
+              onChange={(e) => setPurchaseDate(e.target.value)}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <FormInput
+              label="N° de factura del proveedor"
+              value={supplierInvoiceNumber}
+              onChange={(e) => setSupplierInvoiceNumber(e.target.value)}
+            />
+          </div>
+        </div>
+        <FormSelect label="Condición de pago" value={paymentTerm} onChange={(e) => setPaymentTerm(e.target.value as "cash" | "credit")}>
+          <option value="cash">Contado</option>
+          <option value="credit">Crédito</option>
+        </FormSelect>
 
         <FormSelect
           label="Proveedor"
@@ -235,10 +377,15 @@ export default function PurchasesPage() {
           </>
         )}
 
+        <FormSelect label="Unidad de captura" value={captureUnit} onChange={(e) => setCaptureUnit(e.target.value as "g" | "kg")}>
+          <option value="kg">Kilogramos (Kg) — como suele venir el precio del proveedor</option>
+          <option value="g">Gramos (Gr)</option>
+        </FormSelect>
+
         <div style={{ display: "flex", gap: "12px" }}>
           <div style={{ flex: 1 }}>
             <FormInput
-              label="Cantidad a pedir"
+              label={`Cantidad a pedir (${captureUnit === "kg" ? "Kg" : "Gr"})`}
               type="number"
               value={quantity}
               onChange={(e) => setQuantity(Number(e.target.value))}
@@ -247,7 +394,7 @@ export default function PurchasesPage() {
           </div>
           <div style={{ flex: 1 }}>
             <FormInput
-              label="Costo unitario ($)"
+              label={`Costo por ${captureUnit === "kg" ? "Kilo" : "Gramo"} ($)`}
               type="number"
               step="0.0001"
               value={unitCost}
@@ -256,6 +403,10 @@ export default function PurchasesPage() {
             />
           </div>
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px", color: colors.text, fontSize: "13px" }}>
+          <input type="checkbox" checked={isVatExempt} onChange={(e) => setIsVatExempt(e.target.checked)} />
+          Este ítem está exento de IVA
+        </label>
 
         <FormButton type="button" variant="secondary" onClick={handleAddItemToDraft}>
           Agregar ítem a la orden
@@ -280,49 +431,92 @@ export default function PurchasesPage() {
             </div>
           </div>
         )}
+        </div>
+        )}
       </section>
 
       <section style={sectionStyle}>
-        <h2 style={{ color: colors.text, marginTop: 0 }}>Órdenes</h2>
-        {orders.length === 0 && <p style={{ color: colors.textMuted }}>Todavía no hay órdenes registradas.</p>}
-        {orders.map((order) => (
-          <div
-            key={order.id}
-            style={{
-              background: colors.card,
-              borderRadius: "12px",
-              padding: "16px",
-              marginBottom: "12px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <strong style={{ color: colors.text }}>{supplierName(order.supplierId)}</strong>
-                <span
-                  style={{
-                    marginLeft: "10px",
-                    fontSize: "12px",
-                    color: order.status === "received" ? colors.primary : colors.warning,
-                  }}
-                >
-                  {order.status === "received" ? "✅ Recibida" : "⏳ Pendiente"}
-                </span>
-              </div>
-              {order.status === "ordered" && (
-                <FormButton type="button" onClick={() => handleReceive(order.id)}>
-                  Recibir
-                </FormButton>
-              )}
-            </div>
-            <ul style={{ color: colors.textMuted, fontSize: "13px", marginTop: "8px", paddingLeft: "18px" }}>
-              {order.items.map((item, idx) => (
-                <li key={idx}>
-                  {itemLabel(item)} — {item.quantity} × ${item.unitCost}
-                </li>
-              ))}
-            </ul>
+        <button
+          onClick={() => setOrdersOpen(!ordersOpen)}
+          style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: 0 }}
+        >
+          <h2 style={{ color: colors.text, margin: 0 }}>Órdenes ({orders.length})</h2>
+          <span style={{ color: colors.textMuted, fontSize: "20px" }}>{ordersOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {ordersOpen && (
+        <div style={{ marginTop: "16px" }}>
+        {orders.length > 1 && (
+          <div style={{ marginBottom: "12px" }}>
+            <FormButton type="button" variant="secondary" onClick={() => setOrdersNewestFirst(!ordersNewestFirst)}>
+              {ordersNewestFirst ? "Ver más antiguas primero" : "Ver más recientes primero"}
+            </FormButton>
           </div>
-        ))}
+        )}
+        {orders.length === 0 && <p style={{ color: colors.textMuted }}>Todavía no hay órdenes registradas.</p>}
+        {[...orders]
+          .sort((a, b) =>
+            ordersNewestFirst ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt)
+          )
+          .map((order) => {
+            const orderTotal = order.items.reduce((sum, i) => sum + i.quantity * i.unitCost, 0);
+            return (
+          <div key={order.id} style={{ background: colors.card, borderRadius: "12px", padding: "16px", marginBottom: "12px", opacity: order.status === "voided" ? 0.5 : 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <strong style={{ color: colors.text, display: "block" }}>{supplierName(order.supplierId)}</strong>
+                <div style={{ fontSize: "12px", color: colors.textMuted, marginTop: "2px" }}>
+                  {new Date(order.purchaseDate ?? order.createdAt).toLocaleDateString()} — {order.paymentTerm === "credit" ? "Crédito" : "Contado"}
+                  <span style={{ marginLeft: "8px", color: order.status === "received" ? colors.primary : order.status === "voided" ? colors.danger : colors.warning }}>
+                    {order.status === "received" ? "✅ Recibida" : order.status === "voided" ? "⚠️ ANULADA" : "⏳ Pendiente"}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px" }}>
+                {order.status === "ordered" && (
+                  <FormButton type="button" onClick={() => handleReceive(order.id)}>
+                    Recibir
+                  </FormButton>
+                )}
+                {order.status !== "voided" && (
+                  <button
+                    type="button"
+                    onClick={() => handleVoidOrder(order.id)}
+                    style={{ background: "transparent", border: `1px solid ${colors.danger}`, color: colors.danger, borderRadius: "8px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}
+                  >
+                    Anular
+                  </button>
+                )}
+                <Link
+                  to={`/orders#order-${order.id}`}
+                  style={{ background: "transparent", border: `1px solid ${colors.secondary}`, color: colors.secondary, borderRadius: "8px", padding: "4px 10px", fontSize: "12px", textDecoration: "none", whiteSpace: "nowrap" }}
+                >
+                  Ver
+                </Link>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "12px" }}>
+              <ul style={{ color: colors.textMuted, fontSize: "13px", margin: 0, paddingLeft: "18px" }}>
+                {order.items.map((item, idx) => (
+                  <li key={idx}>{itemLabel(item)} — {item.quantity} × ${item.unitCost}</li>
+                ))}
+              </ul>
+              <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "16px" }}>
+                {order.supplierInvoiceNumber && (
+                  <div style={{ color: colors.text, fontSize: "13px" }}>Factura N° {order.supplierInvoiceNumber}</div>
+                )}
+                <div style={{ color: colors.primary, fontSize: "13px", marginTop: "2px" }}>
+                  <strong>Total: ${orderTotal.toFixed(2)}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+            );
+          })}
+        </div>
+        )}
       </section>
     </div>
   );

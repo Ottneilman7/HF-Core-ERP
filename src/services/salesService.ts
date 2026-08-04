@@ -1,59 +1,75 @@
 /**
- * Servicio: Ventas (Flujo 5 — Clientes → Venta → Factura → Inventario)
- *
- * Una "Sale" cumple el rol de Venta y Factura a la vez (80/20: no se
- * construye un documento de factura formal/PDF en esta entrega — ver
- * Backlog en BP-019).
+ * Servicio: Ventas — Fase Firestore (BP-033). Misma lógica de BP-028/029
+ * (todo o nada, anular revierte todo), ahora sobre businesses/{id}/sales.
  */
+import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 import type { Sale, SaleItem, PaymentType } from "../models/Sale";
 import * as finishedGoodsInventoryService from "./finishedGoodsInventoryService";
+import * as rawMaterialInventoryService from "./rawMaterialInventoryService";
+import * as recipeStockService from "./recipeStockService";
 import * as customerBalanceService from "./customerBalanceService";
+import * as invoiceService from "./invoiceService";
 
-const SALES_KEY = "hf_sales";
+function salesCollectionRef() {
+  return collection(db, "businesses", CURRENT_BUSINESS_ID, "sales");
+}
+function saleDocRef(id: string) {
+  return doc(db, "businesses", CURRENT_BUSINESS_ID, "sales", id);
+}
 
-function readSales(): Sale[] {
-  const raw = localStorage.getItem(SALES_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as Sale[];
-  } catch {
-    return [];
+export async function getSales(): Promise<Sale[]> {
+  const snap = await getDocs(salesCollectionRef());
+  return snap.docs.map((d) => d.data() as Sale);
+}
+
+function validateItemShape(item: SaleItem): void {
+  const count = [item.productId, item.componentRecipeId, item.rawMaterialId].filter(Boolean).length;
+  if (count !== 1) {
+    throw new Error("Cada ítem de venta debe ser exactamente uno: producto, semielaborado o materia prima.");
   }
 }
 
-function writeSales(sales: Sale[]): void {
-  localStorage.setItem(SALES_KEY, JSON.stringify(sales));
+async function getAvailableStock(item: SaleItem): Promise<{ name: string; stock: number }> {
+  if (item.productId) {
+    return { name: item.productId, stock: finishedGoodsInventoryService.getStock(item.productId) };
+  }
+  if (item.componentRecipeId) {
+    const recipe = await recipeStockService.getRecipeById(item.componentRecipeId);
+    return { name: recipe?.name ?? item.componentRecipeId, stock: recipe?.currentStock ?? 0 };
+  }
+  const rawMaterial = await rawMaterialInventoryService.getRawMaterialById(item.rawMaterialId!);
+  return { name: rawMaterial?.name ?? item.rawMaterialId!, stock: rawMaterial?.currentStock ?? 0 };
 }
 
-export function getSales(): Sale[] {
-  return readSales();
-}
-
-/**
- * Registra una venta: valida stock suficiente de TODOS los ítems antes
- * de aplicar cualquier cambio (todo o nada — no se descuenta stock de
- * un ítem si otro va a fallar), descuenta inventario de producto
- * terminado y, si es a crédito, aumenta el saldo del cliente.
- */
-export function createSale(customerId: string, items: SaleItem[], paymentType: PaymentType): Sale {
+export async function createSale(customerId: string, items: SaleItem[], paymentType: PaymentType): Promise<Sale> {
   if (items.length === 0) {
     throw new Error("Una venta necesita al menos un ítem.");
   }
+  items.forEach(validateItemShape);
 
   for (const item of items) {
-    const stock = finishedGoodsInventoryService.getStock(item.productId);
+    const { name, stock } = await getAvailableStock(item);
     if (item.quantity > stock) {
-      throw new Error(`Inventario insuficiente para el producto ${item.productId} (disponible: ${stock}).`);
+      throw new Error(`Inventario insuficiente de ${name} (disponible: ${stock}).`);
     }
   }
 
-  items.forEach((item) => finishedGoodsInventoryService.decreaseStock(item.productId, item.quantity));
+  for (const item of items) {
+    if (item.productId) {
+      finishedGoodsInventoryService.decreaseStock(item.productId, item.quantity);
+    } else if (item.componentRecipeId) {
+      await recipeStockService.decreaseStock(item.componentRecipeId, item.quantity);
+    } else if (item.rawMaterialId) {
+      await rawMaterialInventoryService.consumeStock(item.rawMaterialId, item.quantity);
+    }
+  }
 
   const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
-  if (paymentType === "credit") {
-    customerBalanceService.adjustBalance(customerId, total);
-  }
+  // El saldo del cliente ya NO se ajusta aquí: Sale no sabe de impuestos
+  // ni de retención. Lo hace invoiceService.createInvoiceFromSale, con
+  // el monto real a cobrar (BP-035).
 
   const sale: Sale = {
     id: crypto.randomUUID(),
@@ -61,8 +77,37 @@ export function createSale(customerId: string, items: SaleItem[], paymentType: P
     items,
     paymentType,
     total,
+    status: "active",
     createdAt: new Date().toISOString(),
   };
-  writeSales([...readSales(), sale]);
+  await setDoc(saleDocRef(sale.id), sale);
   return sale;
+}
+
+export async function voidSale(saleId: string): Promise<void> {
+  const snap = await getDoc(saleDocRef(saleId));
+  if (!snap.exists()) {
+    throw new Error(`Venta no encontrada: ${saleId}`);
+  }
+  const sale = snap.data() as Sale;
+  if (sale.status === "voided") return;
+
+  for (const item of sale.items) {
+    if (item.productId) {
+      finishedGoodsInventoryService.increaseStock(item.productId, item.quantity);
+    } else if (item.componentRecipeId) {
+      await recipeStockService.increaseStock(item.componentRecipeId, item.quantity);
+    } else if (item.rawMaterialId) {
+      await rawMaterialInventoryService.receiveStock(item.rawMaterialId, item.quantity);
+    }
+  }
+
+  if (sale.paymentType === "credit") {
+    const invoice = await invoiceService.getInvoiceBySaleId(saleId);
+    if (invoice) {
+      await customerBalanceService.adjustBalance(sale.customerId, -(invoice.netAmountDue ?? invoice.total ?? sale.total));
+    }
+  }
+
+  await setDoc(saleDocRef(saleId), { ...sale, status: "voided" });
 }

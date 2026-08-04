@@ -1,8 +1,12 @@
 export interface Supplier {
   id: string;
-  name: string;
+  name: string; // Razón social
+  tradeName?: string; // Denominación comercial
+  taxId?: string; // RIF/CI
   contactName?: string;
   phone?: string;
   email?: string;
-  createdAt: string; // ISO date
+  city?: string;
+  address?: string;
+  createdAt: string;
 }
