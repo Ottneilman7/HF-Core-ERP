@@ -38,6 +38,7 @@ export default function ProductionPage() {
   const [results, setResults] = useState<ProductionNeed[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [actualQuantity, setActualQuantity] = useState<number>(0);
 
   const { reportProductionNeeds } = useProductionAlerts();
   const selectedRecipe = recipes.find((r) => r.id === selectedId);
@@ -77,12 +78,17 @@ export default function ProductionPage() {
     if (!selectedRecipe) return;
 
     try {
-      await confirmProduction(selectedRecipe, quantity);
+      const actual = actualQuantity > 0 ? actualQuantity : quantity;
+      await confirmProduction(selectedRecipe, quantity, actual);
+      const wasted = quantity - actual;
       setConfirmMessage(
-        `Producción confirmada: ${quantity} ${selectedRecipe.yieldUnit} de ${getProducibleLabel(selectedRecipe.id)}. Materia prima e inventario actualizados.`
+        wasted > 0
+          ? `Producción confirmada: se planeó ${quantity} ${selectedRecipe.yieldUnit}, se obtuvieron ${actual} — merma de ${wasted.toFixed(2)} ${selectedRecipe.yieldUnit} registrada.`
+          : `Producción confirmada: ${quantity} ${selectedRecipe.yieldUnit} de ${getProducibleLabel(selectedRecipe.id)}. Materia prima e inventario actualizados.`
       );
       setResults(null);
       setQuantity(0);
+      setActualQuantity(0);
     } catch (err) {
       setError(err instanceof ProductionCalculationError ? err.message : "Error desconocido.");
     }
@@ -173,23 +179,35 @@ export default function ProductionPage() {
           ))}
 
           {results.every((n) => n.isSufficient) && (
-            <button
-              onClick={handleConfirmProduction}
-              style={{
-                marginTop: "8px",
-                padding: "10px 18px",
-                fontSize: "14px",
-                fontWeight: 600,
-                borderRadius: "999px",
-                border: "none",
-                background: "linear-gradient(145deg, #66BB6A, #2E7D32)",
-                color: "#fff",
-                cursor: "pointer",
-                boxShadow: "0 4px 10px rgba(46,125,50,0.4)",
-              }}
-            >
-              ✔ Confirmar producción
-            </button>
+            <div style={{ marginTop: "12px" }}>
+              <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: colors.textMuted }}>
+                Cantidad real obtenida {selectedRecipe && `(${selectedRecipe.yieldUnit})`} — déjalo en 0 si coincide con lo planeado
+                <input
+                  type="number"
+                  min={0}
+                  value={actualQuantity}
+                  onChange={(e) => setActualQuantity(Number(e.target.value))}
+                  placeholder={String(quantity)}
+                  style={{ display: "block", marginTop: "6px", width: "100%", padding: "10px", borderRadius: "6px", fontSize: "15px", border: "1px solid #ccc" }}
+                />
+              </label>
+              <button
+                onClick={handleConfirmProduction}
+                style={{
+                  padding: "10px 18px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  borderRadius: "999px",
+                  border: "none",
+                  background: "linear-gradient(145deg, #66BB6A, #2E7D32)",
+                  color: "#fff",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 10px rgba(46,125,50,0.4)",
+                }}
+              >
+                ✔ Confirmar producción
+              </button>
+            </div>
           )}
         </Card>
       )}

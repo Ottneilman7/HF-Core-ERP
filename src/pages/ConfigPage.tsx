@@ -6,6 +6,7 @@ import type { TaxRate } from "../models/TaxConfig";
 import { FormInput } from "../components/FormInput";
 import { FormButton } from "../components/FormButton";
 import { colors } from "../theme/colors";
+import { Link } from "react-router-dom";
 
 /**
  * Página: Configuración del negocio (Flujo 1)
@@ -119,6 +120,9 @@ export default function ConfigPage() {
   return (
     <div style={{ maxWidth: "640px" }}>
       <h1 style={{ color: colors.text }}>Configuración del negocio</h1>
+      <Link to="/settings/recipes" style={{ color: colors.secondary }}>
+  🧪 Gestionar Recetas de Productos →
+      </Link>
       <p style={{ color: colors.textMuted }}>
         Esta es la base de todo lo demás: el precio sugerido, las facturas y los reportes usarán estos datos.
       </p>

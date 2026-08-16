@@ -14,20 +14,29 @@ import { calculateProductionNeeds, ProductionCalculationError } from "./producti
 import * as rawMaterialInventoryService from "./rawMaterialInventoryService";
 import * as recipeStockService from "./recipeStockService";
 import * as finishedGoodsInventoryService from "./finishedGoodsInventoryService";
+import * as wasteLogService from "./wasteLogService";
 
 /**
  * Confirma una producción real. Todo o nada: primero valida que TODO lo
  * necesario (materia prima + semielaborados) esté disponible; si algo
- * falta, no se aplica ningún cambio. Si alcanza, descuenta cada insumo y
- * suma el resultado:
- * - a `finishedGoodsInventoryService` si `recipe.productId` existe (es un
- *   SKU vendible: una barra, una presentación de Granola).
- * - al propio stock del semielaborado (`recipeStockService`) si no tiene
- *   `productId` (ej. producir más Granola Base directamente).
+ * falta, no se aplica ningún cambio. Si alcanza, descuenta cada insumo
+ * según lo PLANEADO (`quantityToProduce`) y suma al inventario lo
+ * REALMENTE OBTENIDO (`actualQuantity`, BP-040 — merma de proceso).
+ *
+ * Si no se indica `actualQuantity`, se asume igual a lo planeado (sin
+ * merma) — compatible con cualquier llamada anterior a este cambio.
  */
-export async function confirmProduction(recipe: Recipe, quantityToProduce: number): Promise<void> {
+export async function confirmProduction(
+  recipe: Recipe,
+  quantityToProduce: number,
+  actualQuantity?: number
+): Promise<void> {
   if (quantityToProduce <= 0) {
     throw new ProductionCalculationError("La cantidad a producir debe ser mayor que cero.");
+  }
+  const producedQuantity = actualQuantity ?? quantityToProduce;
+  if (producedQuantity < 0) {
+    throw new ProductionCalculationError("La cantidad real obtenida no puede ser negativa.");
   }
 
   const rawMaterials = await rawMaterialInventoryService.getEffectiveRawMaterials(); // BP-025: Firestore
@@ -51,8 +60,18 @@ export async function confirmProduction(recipe: Recipe, quantityToProduce: numbe
   }
 
   if (recipe.productId) {
-    finishedGoodsInventoryService.increaseStock(recipe.productId, quantityToProduce);
+    finishedGoodsInventoryService.increaseStock(recipe.productId, producedQuantity);
   } else {
-    await recipeStockService.increaseStock(recipe.id, quantityToProduce);
+    await recipeStockService.increaseStock(recipe.id, producedQuantity);
+  }
+
+  if (producedQuantity < quantityToProduce) {
+    await wasteLogService.logProcessWaste(
+      recipe.id,
+      recipe.name ?? recipe.code,
+      quantityToProduce,
+      producedQuantity,
+      recipe.yieldUnit
+    );
   }
 }

@@ -18,6 +18,8 @@ import LoginPage from "../pages/LoginPage";
 import InvoicesPage from "../pages/InvoicesPage";
 import PaymentsPage from "../pages/PaymentsPage";
 import OrdersPage from "../pages/OrdersPage";
+import DashboardsPage from "../pages/DashboardsPage";
+import RecipeConfigPage from "../pages/RecipeConfigPage";
 
 import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
@@ -67,6 +69,8 @@ function AuthGate() {
             <Route path="/invoices" element={<InvoicesPage />} />
             <Route path="/payments" element={<PaymentsPage />} />
             <Route path="/orders" element={<OrdersPage />} />
+            <Route path="/dashboards" element={<DashboardsPage />} />
+            <Route path="/settings/recipes" element={<RecipeConfigPage />} />
 
             {/* Honestidad con el usuario: existen en el menú, no en el producto todavía */}
             <Route path="/purchases" element={<PurchasesPage />} />

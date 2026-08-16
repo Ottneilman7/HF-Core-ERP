@@ -5,7 +5,7 @@
  * async, leyendo/escribiendo businesses/{CURRENT_BUSINESS_ID}/recipes.
  * recipes.ts (la semilla) ya no se importa aquí.
  */
-import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { collection, doc, deleteDoc, getDoc, getDocs, setDoc } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 import type { Recipe } from "../models/Recipe";
 
@@ -51,4 +51,17 @@ export async function decreaseStock(recipeId: string, quantity: number): Promise
     ...current,
     currentStock: available - quantity,
   });
+}
+
+/**
+ * Crea o actualiza una receta completa (BOM) — no solo el stock.
+ * BP-039: módulo de Recetas en Configuración. Si `recipe.id` ya existe,
+ * la sobreescribe (edición); si no, la crea.
+ */
+export async function saveRecipe(recipe: Recipe): Promise<void> {
+  await setDoc(recipeDocRef(recipe.id), recipe);
+}
+
+export async function deleteRecipe(id: string): Promise<void> {
+  await deleteDoc(recipeDocRef(id));
 }

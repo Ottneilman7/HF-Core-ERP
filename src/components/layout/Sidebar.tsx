@@ -9,7 +9,9 @@ const menuItems = [
   { label: "💰 Ventas", path: "/sales" },
   { label: "👥 Clientes", path: "/customers" },
   { label: "📈 Finanzas", path: "/finance" },
+  { label: "📣 Marketing", path: "/marketing" },
   { label: "🎯 Centro de Decisiones", path: "/decisions" },
+  { label: "📊 Dashboards", path: "/dashboards" },
   { label: "⚙ Configuración", path: "/settings" },
 ];
 
