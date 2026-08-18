@@ -1,5 +1,9 @@
-// MaterialShortageAlert.tsx — Centro de Decisiones. Ahora también muestra
-// "cuánto puedes producir con lo que tienes" cuando hay faltantes.
+// MaterialShortageAlert.tsx — Centro de Decisiones.
+// Muestra "cuánto puedes producir con lo que tienes" cuando hay faltantes.
+//
+// BP-041: renombrado de MaterialshortageAlert.tsx → MaterialShortageAlert.tsx
+// (S mayúscula en Shortage) para que el import en DecisionCenterPage.tsx
+// coincida con el nombre real del archivo en Linux/Vercel (case-sensitive).
 
 import type { ProductionNeed } from "../models/ProductionNeed";
 import { toDecisionMessage, toLowStockWarning } from "../services/productionCalculatorService";

@@ -3,11 +3,25 @@ import Card from "../components/ui/Card";
 import * as rawMaterialInventoryService from "../services/rawMaterialInventoryService";
 import * as recipeStockService from "../services/recipeStockService";
 import * as finishedGoodsInventoryService from "../services/finishedGoodsInventoryService";
+import * as wasteLogService from "../services/wasteLogService";
+import type { WasteItemType } from "../services/wasteLogService";
+import type { WasteReason } from "../models/WasteLog";
 import { products } from "../data/products";
 import type { RawMaterial } from "../models/RawMaterial";
 import type { Recipe } from "../models/Recipe";
+import { FormInput } from "../components/FormInput";
+import { FormSelect } from "../components/FormSelect";
+import { FormButton } from "../components/FormButton";
 import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
+
+const WASTE_REASON_LABELS: Record<WasteReason, string> = {
+  burned: "Quemado",
+  spill: "Derrame",
+  expired: "Vencido",
+  mishandling: "Mala manipulación",
+  other: "Otro",
+};
 
 const LETTER_GROUPS = ["A-D", "E-H", "I-L", "M-P", "Q-T", "U-Z"];
 
@@ -85,7 +99,21 @@ export default function InventoryPage() {
   const [semiGroup, setSemiGroup] = useState<string | null>(null);
   const [productGroup, setProductGroup] = useState<string | null>(null);
 
+  const [wasteOpen, setWasteOpen] = useState(false);
+  const [wasteItemType, setWasteItemType] = useState<WasteItemType>("rawMaterial");
+  const [wasteItemId, setWasteItemId] = useState("");
+  const [wasteQuantity, setWasteQuantity] = useState<number>(0);
+  const [wasteReason, setWasteReason] = useState<WasteReason>("burned");
+  const [wasteNote, setWasteNote] = useState("");
+  const [wasteError, setWasteError] = useState<string | null>(null);
+  const [wasteSuccess, setWasteSuccess] = useState<string | null>(null);
+
   useEffect(() => {
+    loadInventory();
+  }, []);
+
+  function loadInventory() {
+    setLoading(true);
     Promise.all([
       rawMaterialInventoryService.getEffectiveRawMaterials(),
       recipeStockService.getEffectiveRecipes(),
@@ -94,7 +122,46 @@ export default function InventoryPage() {
       setSemiFinished(recipes.filter((r) => r.active && r.tracksInventory));
       setLoading(false);
     });
-  }, []);
+  }
+
+  function currentWasteItemName(): string {
+    if (wasteItemType === "rawMaterial") return rawMaterials.find((m) => m.id === wasteItemId)?.name ?? "";
+    if (wasteItemType === "componentRecipe") return semiFinished.find((r) => r.id === wasteItemId)?.name ?? "";
+    return products.find((p) => p.id === wasteItemId)?.name ?? "";
+  }
+
+  function currentWasteItemUnit(): string {
+    if (wasteItemType === "rawMaterial") return rawMaterials.find((m) => m.id === wasteItemId)?.unit ?? "Gramos";
+    if (wasteItemType === "componentRecipe") return semiFinished.find((r) => r.id === wasteItemId)?.unit ?? "Gramos";
+    return "unidades";
+  }
+
+  async function handleRegisterWaste() {
+    setWasteError(null);
+    setWasteSuccess(null);
+    if (!wasteItemId || wasteQuantity <= 0) {
+      setWasteError("Selecciona un artículo y una cantidad mayor a cero.");
+      return;
+    }
+    try {
+      await wasteLogService.logErrorWaste({
+        itemType: wasteItemType,
+        itemId: wasteItemId,
+        itemName: currentWasteItemName(),
+        quantity: wasteQuantity,
+        unit: currentWasteItemUnit(),
+        reason: wasteReason,
+        note: wasteNote || undefined,
+      });
+      setWasteSuccess(`Pérdida registrada: ${wasteQuantity} ${currentWasteItemUnit()} de ${currentWasteItemName()}.`);
+      setWasteItemId("");
+      setWasteQuantity(0);
+      setWasteNote("");
+      loadInventory();
+    } catch (err) {
+      setWasteError(err instanceof Error ? err.message : "No se pudo registrar la pérdida.");
+    }
+  }
 
   const filteredRawMaterials = rawGroup ? rawMaterials.filter((m) => groupFor(m.name[0]) === rawGroup) : rawMaterials;
   const filteredSemiFinished = semiGroup
@@ -113,6 +180,66 @@ export default function InventoryPage() {
 
       {!loading && (
         <>
+          <div style={{ background: colors.surface, border: `1px solid ${colors.warning}`, borderRadius: "16px", marginBottom: "20px", overflow: "hidden" }}>
+            <button
+              onClick={() => setWasteOpen(!wasteOpen)}
+              style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "20px 24px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+            >
+              <span style={{ color: colors.warning, fontSize: typography.subtitle, fontWeight: 700 }}>⚠️ Registrar Pérdida</span>
+              <span style={{ color: colors.textMuted, fontSize: "20px" }}>{wasteOpen ? "▲" : "▼"}</span>
+            </button>
+
+            {wasteOpen && (
+              <div style={{ padding: "0 24px 24px" }}>
+                <p style={{ color: colors.textMuted, fontSize: "13px", marginBottom: "16px" }}>
+                  Para pérdidas por quema, derrame, vencimiento o mala manipulación — no ligadas a una producción
+                  (para merma de proceso, usa "Cantidad real obtenida" en /production).
+                </p>
+
+                <FormSelect
+                  label="Tipo de inventario"
+                  value={wasteItemType}
+                  onChange={(e) => { setWasteItemType(e.target.value as WasteItemType); setWasteItemId(""); }}
+                >
+                  <option value="rawMaterial">Materia prima</option>
+                  <option value="componentRecipe">Semielaborado</option>
+                  <option value="product">Producto terminado</option>
+                </FormSelect>
+
+                <FormSelect label="Artículo" value={wasteItemId} onChange={(e) => setWasteItemId(e.target.value)}>
+                  <option value="">Selecciona</option>
+                  {wasteItemType === "rawMaterial" &&
+                    rawMaterials.map((m) => <option key={m.id} value={m.id}>{m.name} (stock: {m.currentStock} {m.unit})</option>)}
+                  {wasteItemType === "componentRecipe" &&
+                    semiFinished.map((r) => <option key={r.id} value={r.id}>{r.name ?? r.code} (stock: {r.currentStock ?? 0} {r.unit})</option>)}
+                  {wasteItemType === "product" &&
+                    products.map((p) => <option key={p.id} value={p.id}>{p.name} (stock: {finishedGoodsStock[p.id] ?? 0})</option>)}
+                </FormSelect>
+
+                <FormInput
+                  label="Cantidad perdida"
+                  type="number"
+                  min={0}
+                  value={wasteQuantity}
+                  onChange={(e) => setWasteQuantity(Number(e.target.value))}
+                />
+
+                <FormSelect label="Motivo" value={wasteReason} onChange={(e) => setWasteReason(e.target.value as WasteReason)}>
+                  {Object.entries(WASTE_REASON_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </FormSelect>
+
+                <FormInput label="Nota (opcional)" value={wasteNote} onChange={(e) => setWasteNote(e.target.value)} />
+
+                <FormButton type="button" onClick={handleRegisterWaste}>Registrar pérdida</FormButton>
+
+                {wasteError && <p style={{ color: colors.danger, marginTop: "10px", fontSize: "13px" }}>⚠️ {wasteError}</p>}
+                {wasteSuccess && <p style={{ color: colors.primary, marginTop: "10px", fontSize: "13px" }}>✅ {wasteSuccess}</p>}
+              </div>
+            )}
+          </div>
+
           <CollapsibleSection
             title="Materia Prima"
             names={rawMaterials.map((m) => m.name)}

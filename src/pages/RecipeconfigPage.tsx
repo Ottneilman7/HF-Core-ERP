@@ -27,9 +27,11 @@ const emptyRecipe = (): Partial<Recipe> => ({
 /**
  * Página: Recetas de Productos (Semielaborados y Terminados)
  * Ruta: /settings/recipes — accesible desde Configuración.
- * BP-039 (segunda parte): reemplaza la edición manual de recipes.ts.
- * Crear/editar receta aquí actualiza directamente lo que usa
- * productionCalculatorService para calcular Producción.
+ *
+ * BP-041 (fix): renombrado de RecipeconfigPage.tsx → RecipeConfigPage.tsx
+ * para que el import en AppRouter.tsx coincida con el nombre real del
+ * archivo. En Windows el build funcionaba (case-insensitive), pero en
+ * Linux/Vercel fallaba con Module not found.
  */
 export default function RecipeConfigPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);

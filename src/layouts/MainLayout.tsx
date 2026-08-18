@@ -1,4 +1,5 @@
-import { ReactNode } from "react";
+// BP-041: corregido import de ReactNode → import type (verbatimModuleSyntax)
+import type { ReactNode } from "react";
 import Sidebar from "../components/layout/Sidebar";
 import { colors } from "../theme/colors";
 
@@ -16,7 +17,6 @@ export default function MainLayout({ children }: Props) {
       }}
     >
       <Sidebar />
-
       <main
         style={{
           flex: 1,

@@ -9,7 +9,6 @@ import ProductsPage from "../pages/ProductsPage";
 import CustomersPage from "../pages/CustomersPage";
 import ProductionPage from "../pages/ProductionPage";
 import ConfigPage from "../pages/ConfigPage";
-import ComingSoonPage from "../components/ComingSoonPage";
 import PurchasesPage from "../pages/PurchasesPage";
 import SalesPage from "../pages/SalesPage";
 import FinancePage from "../pages/FinancePage";
@@ -25,6 +24,8 @@ import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 
+// BP-041: se elimina el import de ComingSoonPage que ya no se usaba
+// en ninguna ruta — causaba TS6133 (declared but never read).
 
 export default function AppRouter() {
   return (
@@ -39,8 +40,7 @@ export default function AppRouter() {
 /**
  * BP-023: puerta de autenticación. Mientras Firebase resuelve la sesión
  * (`loading`), no mostramos nada definitivo para evitar un parpadeo hacia
- * el login. Sin sesión → LoginPage. Con sesión → la app completa, igual
- * que antes.
+ * el login. Sin sesión → LoginPage. Con sesión → la app completa.
  */
 function AuthGate() {
   const { user, loading } = useAuth();
@@ -72,15 +72,14 @@ function AuthGate() {
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/settings/recipes" element={<RecipeConfigPage />} />
 
-            {/* Honestidad con el usuario: existen en el menú, no en el producto todavía */}
             <Route path="/purchases" element={<PurchasesPage />} />
             <Route path="/sales" element={<SalesPage />} />
             <Route path="/finance" element={<FinancePage />} />
             <Route path="/marketing" element={<MarketingPage />} />
-            {/* BP-016: Configuración real (Empresa, Parámetros, Impuestos), ya no ComingSoon */}
+            {/* BP-016: Configuración real (Empresa, Parámetros, Impuestos) */}
             <Route path="/settings" element={<ConfigPage />} />
 
-            {/* /recipes deliberadamente NO se registra (BP-013): la fórmula no se expone en la UI */}
+            {/* /recipes deliberadamente NO se registra (BP-013) */}
           </Routes>
         </MainLayout>
       </ProductionAlertsProvider>

@@ -21,6 +21,10 @@ type ItemKind = "rawMaterial" | "semiFinished";
  * BP-025/BP-026: rawMaterialInventoryService y recipeStockService son
  * ahora Firestore (async) — ambos catálogos se cargan con useEffect +
  * estado de loading propio.
+ *
+ * BP-041 (fix): se agrega handleVoidOrder, que llamaba a
+ * purchaseService.voidPurchaseOrder pero nunca fue declarada en este
+ * archivo — causaba ReferenceError en build y en runtime.
  */
 export default function PurchasesPage() {
   const [suppliers, setSuppliers] = useState<Awaited<ReturnType<typeof purchaseService.getSuppliers>>>([]);
@@ -28,7 +32,9 @@ export default function PurchasesPage() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [loadingRawMaterials, setLoadingRawMaterials] = useState(true);
   const [semiFinishedRecipes, setSemiFinishedRecipes] = useState<Recipe[]>([]);
-  const [loadingRecipes, setLoadingRecipes] = useState(true);
+  // loadingRecipes se gestiona internamente en loadSemiFinishedRecipes
+  // (no se expone en el JSX — el selector de semielaborados solo aparece
+  // cuando el usuario elige esa opción, momento en que ya están cargados).
 
   const [showNewSupplier, setShowNewSupplier] = useState(false);
   const [suppliersOpen, setSuppliersOpen] = useState(false);
@@ -83,12 +89,10 @@ export default function PurchasesPage() {
   }, []);
 
   const loadSemiFinishedRecipes = useCallback(async () => {
-    setLoadingRecipes(true);
     const all = await recipeStockService.getEffectiveRecipes();
     const tracked = all.filter((r) => r.active && r.tracksInventory);
     setSemiFinishedRecipes(tracked);
     setSelectedRecipeId((prev) => prev || tracked[0]?.id || "");
-    setLoadingRecipes(false);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -176,6 +180,24 @@ export default function PurchasesPage() {
       await Promise.all([loadRawMaterials(), loadSemiFinishedRecipes()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo recibir la orden.");
+    }
+  }
+
+  // BP-041 FIX: función que faltaba — el botón "Anular" la llamaba
+  // pero nunca se había declarado, rompiendo el build con:
+  // "Cannot find name 'handleVoidOrder'".
+  // El servicio purchaseService.voidPurchaseOrder sí existía y está
+  // completo (BP-037) — solo faltaba conectarlo desde la página.
+  async function handleVoidOrder(orderId: string) {
+    setError(null);
+    try {
+      await purchaseService.voidPurchaseOrder(orderId);
+      await refresh();
+      // Si la orden ya tenía stock recibido, voidPurchaseOrder lo revirtió
+      // en Firestore — recargamos los catálogos para reflejar el cambio.
+      await Promise.all([loadRawMaterials(), loadSemiFinishedRecipes()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo anular la orden.");
     }
   }
 
