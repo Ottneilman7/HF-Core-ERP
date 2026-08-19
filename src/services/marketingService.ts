@@ -1,31 +1,42 @@
 /**
  * Servicio: Marketing (Flujo 7 — Campañas → Publicaciones → Seguimiento)
  *
- * A propósito NO es un CRM ni un calendario complejo (EL-Verdadero-MVP-EIF.md
- * lo excluye explícitamente). Es un asistente simple: una meta de
- * publicaciones por semana, pilares de contenido de partida (como los
- * sugeriría un marketing manager en una empresa pequeña), un calendario
- * plano de publicaciones, y recordatorios/sugerencias calculados —
- * mismo espíritu del EIF aplicado a este flujo.
+ * BP-043: migrado de localStorage a Firestore.
+ * Colecciones:
+ *   businesses/{businessId}/marketingStrategy   (documento único)
+ *   businesses/{businessId}/marketingPosts/{postId}
+ *
+ * A propósito NO es un CRM ni un calendario complejo — es un asistente
+ * simple: meta de publicaciones por semana, pilares de contenido, calendario
+ * plano y sugerencias calculadas. Mismo espíritu del EIF aplicado a Marketing.
+ *
+ * Regla ADR-009: todos los campos opcionales se leen con ?? para no romper
+ * documentos creados antes de que el campo existiera.
  */
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 import type { MarketingStrategy } from "../models/MarketingStrategy";
 import type { MarketingPost, MarketingPostStatus } from "../models/MarketingPost";
 
-const STRATEGY_KEY = "hf_marketing_strategy";
-const POSTS_KEY = "hf_marketing_posts";
+// --- Referencias a Firestore ---
 
-function read<T>(key: string, fallback: T): T {
-  const raw = localStorage.getItem(key);
-  if (!raw) return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+function strategyRef() {
+  return doc(db, "businesses", CURRENT_BUSINESS_ID, "marketingStrategy", "config");
 }
 
-function write<T>(key: string, value: T): void {
-  localStorage.setItem(key, JSON.stringify(value));
+function postsCol() {
+  return collection(db, "businesses", CURRENT_BUSINESS_ID, "marketingPosts");
+}
+
+function postRef(postId: string) {
+  return doc(db, "businesses", CURRENT_BUSINESS_ID, "marketingPosts", postId);
 }
 
 // --- Estrategia ---
@@ -42,21 +53,47 @@ const DEFAULT_STRATEGY: MarketingStrategy = {
   updatedAt: new Date(0).toISOString(),
 };
 
-export function getStrategy(): MarketingStrategy {
-  return read<MarketingStrategy>(STRATEGY_KEY, DEFAULT_STRATEGY);
+export async function getStrategy(): Promise<MarketingStrategy> {
+  const snap = await getDoc(strategyRef());
+  if (!snap.exists()) return DEFAULT_STRATEGY;
+  const data = snap.data();
+  return {
+    postsPerWeekTarget: Number.isFinite(data?.postsPerWeekTarget)
+      ? (data.postsPerWeekTarget as number)
+      : DEFAULT_STRATEGY.postsPerWeekTarget,
+    contentPillars: Array.isArray(data?.contentPillars)
+      ? (data.contentPillars as string[])
+      : DEFAULT_STRATEGY.contentPillars,
+    updatedAt: (data?.updatedAt as string) ?? DEFAULT_STRATEGY.updatedAt,
+  };
 }
 
-export function saveStrategy(strategy: MarketingStrategy): void {
-  write(STRATEGY_KEY, strategy);
+export async function saveStrategy(strategy: MarketingStrategy): Promise<void> {
+  await setDoc(strategyRef(), strategy, { merge: true });
 }
 
 // --- Calendario de publicaciones ---
 
-export function getPosts(): MarketingPost[] {
-  return read<MarketingPost[]>(POSTS_KEY, []);
+export async function getPosts(): Promise<MarketingPost[]> {
+  const snap = await getDocs(postsCol());
+  return snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      title: (data.title as string) ?? "",
+      scheduledDate: (data.scheduledDate as string) ?? "",
+      status: (data.status as MarketingPostStatus) ?? "planned",
+      notes: (data.notes as string | undefined) ?? undefined,
+      createdAt: (data.createdAt as string) ?? new Date().toISOString(),
+    };
+  });
 }
 
-export function createPost(title: string, scheduledDate: string, notes?: string): MarketingPost {
+export async function createPost(
+  title: string,
+  scheduledDate: string,
+  notes?: string
+): Promise<MarketingPost> {
   if (!title.trim()) {
     throw new Error("La publicación necesita un tema o título.");
   }
@@ -68,18 +105,20 @@ export function createPost(title: string, scheduledDate: string, notes?: string)
     notes,
     createdAt: new Date().toISOString(),
   };
-  write(POSTS_KEY, [...getPosts(), post]);
+  await setDoc(postRef(post.id), post);
   return post;
 }
 
-export function setPostStatus(postId: string, status: MarketingPostStatus): void {
-  const posts = getPosts();
-  const post = posts.find((p) => p.id === postId);
-  if (!post) {
+export async function setPostStatus(
+  postId: string,
+  status: MarketingPostStatus
+): Promise<void> {
+  const ref = postRef(postId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
     throw new Error(`Publicación no encontrada: ${postId}`);
   }
-  post.status = status;
-  write(POSTS_KEY, posts);
+  await updateDoc(ref, { status });
 }
 
 // --- Asistente: sugerencias y recordatorios ---
@@ -90,43 +129,67 @@ function todayISO(): string {
 
 function daysBetween(a: string, b: string): number {
   const msPerDay = 86400000;
-  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / msPerDay);
+  return Math.round(
+    (new Date(b).getTime() - new Date(a).getTime()) / msPerDay
+  );
 }
 
-export function getSuggestions(): string[] {
-  const posts = getPosts();
-  const strategy = getStrategy();
+function getCurrentWeekRange(dateISO: string): { start: string; end: string } {
+  const date = new Date(dateISO + "T00:00:00");
+  const dayOfWeek = date.getDay();
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    start: monday.toISOString().slice(0, 10),
+    end: sunday.toISOString().slice(0, 10),
+  };
+}
+
+export async function getSuggestions(): Promise<string[]> {
+  const [posts, strategy] = await Promise.all([getPosts(), getStrategy()]);
   const today = todayISO();
   const suggestions: string[] = [];
 
-  const dueToday = posts.filter((p) => p.status === "planned" && p.scheduledDate === today);
-  dueToday.forEach((p) => suggestions.push(`📌 Hoy toca publicar: ${p.title}`));
+  const dueToday = posts.filter(
+    (p) => p.status === "planned" && p.scheduledDate === today
+  );
+  dueToday.forEach((p) =>
+    suggestions.push(`📌 Hoy toca publicar: ${p.title}`)
+  );
 
-  const overdue = posts.filter((p) => p.status === "planned" && p.scheduledDate < today);
+  const overdue = posts.filter(
+    (p) => p.status === "planned" && p.scheduledDate < today
+  );
   overdue.forEach((p) =>
-    suggestions.push(`⚠️ Quedó pendiente de publicar: ${p.title} (programado para ${p.scheduledDate})`)
+    suggestions.push(
+      `⚠️ Quedó pendiente de publicar: ${p.title} (programado para ${p.scheduledDate})`
+    )
   );
 
   const publishedPosts = posts.filter((p) => p.status === "published");
   if (publishedPosts.length === 0) {
-    suggestions.push("🚀 Todavía no has marcado ninguna publicación como hecha — empieza con la primera de tu semana.");
+    suggestions.push(
+      "🚀 Todavía no has marcado ninguna publicación como hecha — empieza con la primera de tu semana."
+    );
   } else {
     const lastPublished = publishedPosts.reduce((latest, p) =>
       p.scheduledDate > latest.scheduledDate ? p : latest
     );
     const daysSince = daysBetween(lastPublished.scheduledDate, today);
     if (daysSince > 7) {
-      suggestions.push(`🕐 Llevas ${daysSince} días sin publicar. Tus clientes podrían olvidarte.`);
+      suggestions.push(
+        `🕐 Llevas ${daysSince} días sin publicar. Tus clientes podrían olvidarte.`
+      );
     }
   }
 
-  // Cuenta TODO lo programado en la semana calendario actual (lunes-domingo),
-  // sea planificado o ya publicado — el bug original solo miraba "planned"
-  // (desaparecía al marcar como publicada) y luego solo miraba adelante desde
-  // hoy (no contaba lo ya publicado ANTES de hoy en la misma semana).
   const weekRange = getCurrentWeekRange(today);
   const scheduledThisWeek = posts.filter(
-    (p) => p.scheduledDate >= weekRange.start && p.scheduledDate <= weekRange.end
+    (p) =>
+      p.scheduledDate >= weekRange.start && p.scheduledDate <= weekRange.end
   );
   if (scheduledThisWeek.length < strategy.postsPerWeekTarget) {
     const missing = strategy.postsPerWeekTarget - scheduledThisWeek.length;
@@ -136,19 +199,4 @@ export function getSuggestions(): string[] {
   }
 
   return suggestions;
-}
-
-/** Semana calendario lunes-domingo que contiene `dateISO`. */
-function getCurrentWeekRange(dateISO: string): { start: string; end: string } {
-  const date = new Date(dateISO + "T00:00:00");
-  const dayOfWeek = date.getDay(); // 0 = domingo, 1 = lunes, ...
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-
-  const monday = new Date(date);
-  monday.setDate(date.getDate() + diffToMonday);
-
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-
-  return { start: monday.toISOString().slice(0, 10), end: sunday.toISOString().slice(0, 10) };
 }

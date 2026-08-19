@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as marketingService from "../services/marketingService";
+import type { MarketingPost } from "../models/MarketingPost";
 import { FormInput } from "../components/FormInput";
 import { FormButton } from "../components/FormButton";
 import { colors } from "../theme/colors";
@@ -8,36 +9,56 @@ import { colors } from "../theme/colors";
  * Página: Marketing (Flujo 7)
  * Ruta: /marketing
  *
+ * BP-043: marketingService es ahora async (Firestore). Se reemplaza el
+ * patrón de llamadas síncronas directas por useEffect + await + estado
+ * de carga — mismo patrón que el resto de páginas del proyecto.
+ *
  * A propósito simple: estrategia (meta semanal + pilares), calendario
- * plano de publicaciones, y un asistente de sugerencias — no un CRM.
+ * plano de publicaciones, y asistente de sugerencias — no un CRM.
  */
 export default function MarketingPage() {
-  const [, forceRefresh] = useState(0);
-  const strategy = marketingService.getStrategy();
-  const posts = marketingService
-    .getPosts()
-    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
-  const suggestions = marketingService.getSuggestions();
+  const [posts, setPosts] = useState<MarketingPost[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [postsPerWeekTarget, setPostsPerWeekTarget] = useState(2);
+  const [pillars, setPillars] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [postsPerWeekTarget, setPostsPerWeekTarget] = useState(strategy.postsPerWeekTarget);
   const [newPillar, setNewPillar] = useState("");
-  const [pillars, setPillars] = useState(strategy.contentPillars);
-
   const [title, setTitle] = useState("");
-  const [scheduledDate, setScheduledDate] = useState(new Date().toISOString().slice(0, 10));
+  const [scheduledDate, setScheduledDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
   const [notes, setNotes] = useState("");
 
-  function refresh() {
-    forceRefresh((n) => n + 1);
-  }
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [strategy, allPosts, allSuggestions] = await Promise.all([
+      marketingService.getStrategy(),
+      marketingService.getPosts(),
+      marketingService.getSuggestions(),
+    ]);
+    setPostsPerWeekTarget(strategy.postsPerWeekTarget);
+    setPillars(strategy.contentPillars);
+    setPosts(
+      [...allPosts].sort((a, b) =>
+        a.scheduledDate.localeCompare(b.scheduledDate)
+      )
+    );
+    setSuggestions(allSuggestions);
+    setLoading(false);
+  }, []);
 
-  function handleSaveStrategy() {
-    marketingService.saveStrategy({
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleSaveStrategy() {
+    await marketingService.saveStrategy({
       postsPerWeekTarget,
       contentPillars: pillars,
       updatedAt: new Date().toISOString(),
     });
-    refresh();
+    await load();
   }
 
   function handleAddPillar() {
@@ -50,17 +71,17 @@ export default function MarketingPage() {
     setPillars(pillars.filter((p) => p !== pillar));
   }
 
-  function handleCreatePost() {
+  async function handleCreatePost() {
     if (!title.trim()) return;
-    marketingService.createPost(title, scheduledDate, notes || undefined);
+    await marketingService.createPost(title, scheduledDate, notes || undefined);
     setTitle("");
     setNotes("");
-    refresh();
+    await load();
   }
 
-  function handleMarkPublished(postId: string) {
-    marketingService.setPostStatus(postId, "published");
-    refresh();
+  async function handleMarkPublished(postId: string) {
+    await marketingService.setPostStatus(postId, "published");
+    await load();
   }
 
   const sectionStyle = {
@@ -70,6 +91,10 @@ export default function MarketingPage() {
     padding: "24px",
     marginBottom: "24px",
   };
+
+  if (loading) {
+    return <p style={{ color: colors.textMuted, padding: "32px" }}>Cargando...</p>;
+  }
 
   return (
     <div style={{ maxWidth: "680px" }}>
@@ -112,7 +137,8 @@ export default function MarketingPage() {
         />
 
         <p style={{ color: colors.textMuted, fontSize: "13px", marginBottom: "8px" }}>
-          Pilares de contenido (de qué vas a hablar, para no depender de la inspiración del momento):
+          Pilares de contenido (de qué vas a hablar, para no depender de la
+          inspiración del momento):
         </p>
         <ul style={{ listStyle: "none", padding: 0 }}>
           {pillars.map((p) => (
@@ -133,7 +159,12 @@ export default function MarketingPage() {
               <button
                 type="button"
                 onClick={() => handleRemovePillar(p)}
-                style={{ background: "transparent", border: "none", color: colors.danger, cursor: "pointer" }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: colors.danger,
+                  cursor: "pointer",
+                }}
               >
                 Eliminar
               </button>
@@ -164,7 +195,11 @@ export default function MarketingPage() {
       <section style={sectionStyle}>
         <h2 style={{ color: colors.text, marginTop: 0 }}>Calendario de publicaciones</h2>
 
-        <FormInput label="Tema o título" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <FormInput
+          label="Tema o título"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
         <FormInput
           label="Fecha"
           type="date"
@@ -183,7 +218,9 @@ export default function MarketingPage() {
 
         <div style={{ marginTop: "20px" }}>
           {posts.length === 0 && (
-            <p style={{ color: colors.textMuted }}>Todavía no hay publicaciones planificadas.</p>
+            <p style={{ color: colors.textMuted }}>
+              Todavía no hay publicaciones planificadas.
+            </p>
           )}
           {posts.map((post) => (
             <div
@@ -199,15 +236,23 @@ export default function MarketingPage() {
               }}
             >
               <div>
-                <div style={{ color: colors.text, fontWeight: 600 }}>{post.title}</div>
+                <div style={{ color: colors.text, fontWeight: 600 }}>
+                  {post.title}
+                </div>
                 <div style={{ color: colors.textMuted, fontSize: "12px" }}>
-                  {post.scheduledDate} {post.notes ? `— ${post.notes}` : ""}
+                  {post.scheduledDate}
+                  {post.notes ? ` — ${post.notes}` : ""}
                 </div>
               </div>
               {post.status === "published" ? (
-                <span style={{ color: colors.primary, fontSize: "12px" }}>✅ Publicada</span>
+                <span style={{ color: colors.primary, fontSize: "12px" }}>
+                  ✅ Publicada
+                </span>
               ) : (
-                <FormButton type="button" onClick={() => handleMarkPublished(post.id)}>
+                <FormButton
+                  type="button"
+                  onClick={() => handleMarkPublished(post.id)}
+                >
                   Marcar publicada
                 </FormButton>
               )}
