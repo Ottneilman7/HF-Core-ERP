@@ -8,6 +8,9 @@
  *
  * Reutiliza el motor ya probado de productionCalculatorService
  * (calculateProductionNeeds) sin modificarlo — Regla 1.
+ *
+ * BP-042: increaseStock de finishedGoodsInventoryService es ahora async
+ * (migrado a Firestore) — se agrega await en la llamada correspondiente.
  */
 import type { Recipe } from "../models/Recipe";
 import { calculateProductionNeeds, ProductionCalculationError } from "./productionCalculatorService";
@@ -39,8 +42,8 @@ export async function confirmProduction(
     throw new ProductionCalculationError("La cantidad real obtenida no puede ser negativa.");
   }
 
-  const rawMaterials = await rawMaterialInventoryService.getEffectiveRawMaterials(); // BP-025: Firestore
-  const effectiveRecipes = await recipeStockService.getEffectiveRecipes(); // BP-026: Firestore
+  const rawMaterials = await rawMaterialInventoryService.getEffectiveRawMaterials();
+  const effectiveRecipes = await recipeStockService.getEffectiveRecipes();
 
   const needs = calculateProductionNeeds(recipe, quantityToProduce, rawMaterials, effectiveRecipes);
 
@@ -51,6 +54,7 @@ export async function confirmProduction(
     );
   }
 
+  // Descontar insumos
   for (const need of needs) {
     if (need.sourceType === "rawMaterial") {
       await rawMaterialInventoryService.consumeStock(need.sourceId, need.requiredQuantity);
@@ -59,12 +63,16 @@ export async function confirmProduction(
     }
   }
 
+  // Sumar al inventario de destino
   if (recipe.productId) {
-    finishedGoodsInventoryService.increaseStock(recipe.productId, producedQuantity);
+    // Producto terminado vendible → Firestore (BP-042: ahora async)
+    await finishedGoodsInventoryService.increaseStock(recipe.productId, producedQuantity);
   } else {
+    // Semielaborado con inventario propio → Firestore (ya era async)
     await recipeStockService.increaseStock(recipe.id, producedQuantity);
   }
 
+  // Registrar merma si la hubo (BP-040)
   if (producedQuantity < quantityToProduce) {
     await wasteLogService.logProcessWaste(
       recipe.id,

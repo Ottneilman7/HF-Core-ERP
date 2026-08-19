@@ -20,12 +20,12 @@ import OrdersPage from "../pages/OrdersPage";
 import DashboardsPage from "../pages/DashboardsPage";
 import RecipeConfigPage from "../pages/RecipeConfigPage";
 
+// BP-042: ruta temporal de migración — eliminar después de ejecutar /migrate-finished-goods
+import MigrateFinishedGoodsPage from "../pages/MigrateFinishedGoodsPage";
+
 import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
-
-// BP-041: se elimina el import de ComingSoonPage que ya no se usaba
-// en ninguna ruta — causaba TS6133 (declared but never read).
 
 export default function AppRouter() {
   return (
@@ -37,11 +37,6 @@ export default function AppRouter() {
   );
 }
 
-/**
- * BP-023: puerta de autenticación. Mientras Firebase resuelve la sesión
- * (`loading`), no mostramos nada definitivo para evitar un parpadeo hacia
- * el login. Sin sesión → LoginPage. Con sesión → la app completa.
- */
 function AuthGate() {
   const { user, loading } = useAuth();
 
@@ -58,10 +53,8 @@ function AuthGate() {
       <ProductionAlertsProvider>
         <MainLayout>
           <Routes>
-            {/* BP-013: "/" es la landing, no el Centro de Decisiones */}
             <Route path="/" element={<HomePage />} />
             <Route path="/decisions" element={<DecisionCenterPage />} />
-
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/production" element={<ProductionPage />} />
@@ -71,15 +64,12 @@ function AuthGate() {
             <Route path="/orders" element={<OrdersPage />} />
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/settings/recipes" element={<RecipeConfigPage />} />
-
             <Route path="/purchases" element={<PurchasesPage />} />
             <Route path="/sales" element={<SalesPage />} />
             <Route path="/finance" element={<FinancePage />} />
             <Route path="/marketing" element={<MarketingPage />} />
-            {/* BP-016: Configuración real (Empresa, Parámetros, Impuestos) */}
             <Route path="/settings" element={<ConfigPage />} />
-
-            {/* /recipes deliberadamente NO se registra (BP-013) */}
+            
           </Routes>
         </MainLayout>
       </ProductionAlertsProvider>
