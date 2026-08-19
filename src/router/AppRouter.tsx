@@ -20,9 +20,6 @@ import OrdersPage from "../pages/OrdersPage";
 import DashboardsPage from "../pages/DashboardsPage";
 import RecipeConfigPage from "../pages/RecipeConfigPage";
 
-// BP-042: ruta temporal de migración — eliminar después de ejecutar /migrate-finished-goods
-import MigrateFinishedGoodsPage from "../pages/MigrateFinishedGoodsPage";
-
 import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
@@ -69,7 +66,6 @@ function AuthGate() {
             <Route path="/finance" element={<FinancePage />} />
             <Route path="/marketing" element={<MarketingPage />} />
             <Route path="/settings" element={<ConfigPage />} />
-            
           </Routes>
         </MainLayout>
       </ProductionAlertsProvider>
