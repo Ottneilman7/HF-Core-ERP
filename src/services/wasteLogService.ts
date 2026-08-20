@@ -1,8 +1,12 @@
 /**
- * Servicio: Registro de Merma. Entrega A (BP-040): merma de proceso —
- * diferencia entre lo planeado y lo realmente obtenido al confirmar una
- * producción (evaporación, cocción, secado). Entrega B (próxima):
- * pérdidas por error, independientes de una producción.
+ * Servicio: Registro de Merma
+ *
+ * BP-040 Entrega A: merma de proceso (diferencia entre lo planeado y lo
+ * realmente obtenido al confirmar una producción).
+ * BP-040 Entrega B: merma por error (quema, derrame, vencido, etc.) —
+ * descuenta inventario real y registra el motivo.
+ * BP-046 fix: se agrega await faltante en logErrorWaste al llamar a
+ * finishedGoodsInventoryService.decreaseStock (async desde BP-042).
  */
 import { collection, doc, getDocs, setDoc } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
@@ -28,7 +32,7 @@ export async function logProcessWaste(
   unit: string
 ): Promise<void> {
   const wasteQuantity = plannedQuantity - actualQuantity;
-  if (wasteQuantity <= 0) return; // sin merma, o incluso rindió más — no se registra
+  if (wasteQuantity <= 0) return;
 
   const entry: WasteLogEntry = {
     id: crypto.randomUUID(),
@@ -41,10 +45,13 @@ export async function logProcessWaste(
     unit,
     createdAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "wasteLog", entry.id), entry);
+  await setDoc(
+    doc(db, "businesses", CURRENT_BUSINESS_ID, "wasteLog", entry.id),
+    entry
+  );
 }
 
-// --- Entrega B: merma por error (quema, derrame, vencido, mala manipulación) ---
+// --- Merma por error ---
 
 export type WasteItemType = "rawMaterial" | "componentRecipe" | "product";
 
@@ -58,18 +65,20 @@ export interface LogErrorWasteInput {
   note?: string;
 }
 
-/** Descarta inventario ya existente (no ligado a una producción) y lo descuenta del inventario real. */
 export async function logErrorWaste(input: LogErrorWasteInput): Promise<void> {
   if (input.quantity <= 0) {
     throw new Error("La cantidad debe ser mayor a cero.");
   }
 
+  // Descontar del inventario real según el tipo de ítem
   if (input.itemType === "rawMaterial") {
     await rawMaterialInventoryService.consumeStock(input.itemId, input.quantity);
   } else if (input.itemType === "componentRecipe") {
     await recipeStockService.decreaseStock(input.itemId, input.quantity);
   } else {
-    finishedGoodsInventoryService.decreaseStock(input.itemId, input.quantity);
+    // BP-046 fix: faltaba await — finishedGoodsInventoryService.decreaseStock
+    // es async desde BP-042 (migración a Firestore)
+    await finishedGoodsInventoryService.decreaseStock(input.itemId, input.quantity);
   }
 
   const entry: WasteLogEntry = {
@@ -85,5 +94,8 @@ export async function logErrorWaste(input: LogErrorWasteInput): Promise<void> {
     unit: input.unit,
     createdAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "wasteLog", entry.id), entry);
+  await setDoc(
+    doc(db, "businesses", CURRENT_BUSINESS_ID, "wasteLog", entry.id),
+    entry
+  );
 }

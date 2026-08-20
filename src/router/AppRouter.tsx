@@ -1,7 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-
 import MainLayout from "../layouts/MainLayout";
-
 import HomePage from "../pages/HomePage";
 import DecisionCenterPage from "../pages/DecisionCenterPage";
 import InventoryPage from "../pages/InventoryPage";
@@ -19,7 +17,7 @@ import PaymentsPage from "../pages/PaymentsPage";
 import OrdersPage from "../pages/OrdersPage";
 import DashboardsPage from "../pages/DashboardsPage";
 import RecipeConfigPage from "../pages/RecipeConfigPage";
-
+import WasteLogPage from "../pages/WasteLogPage";
 import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
@@ -36,15 +34,8 @@ export default function AppRouter() {
 
 function AuthGate() {
   const { user, loading } = useAuth();
-
-  if (loading) {
-    return <p style={{ color: "#94A3B8", padding: "24px" }}>Cargando...</p>;
-  }
-
-  if (!user) {
-    return <LoginPage />;
-  }
-
+  if (loading) return <p style={{ color: "#94A3B8", padding: "24px" }}>Cargando...</p>;
+  if (!user) return <LoginPage />;
   return (
     <ConfigProvider>
       <ProductionAlertsProvider>
@@ -66,6 +57,8 @@ function AuthGate() {
             <Route path="/finance" element={<FinancePage />} />
             <Route path="/marketing" element={<MarketingPage />} />
             <Route path="/settings" element={<ConfigPage />} />
+            {/* BP-046: historial de merma */}
+            <Route path="/waste" element={<WasteLogPage />} />
           </Routes>
         </MainLayout>
       </ProductionAlertsProvider>
