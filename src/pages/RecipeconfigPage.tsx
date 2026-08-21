@@ -1,43 +1,70 @@
 import { useState, useEffect, useCallback } from "react";
 import * as recipeStockService from "../services/recipeStockService";
 import * as rawMaterialInventoryService from "../services/rawMaterialInventoryService";
-import { products } from "../data/products";
 import type { Recipe, RecipeItem } from "../models/Recipe";
 import type { RawMaterial } from "../models/RawMaterial";
 import { FormInput } from "../components/FormInput";
-import { FormSelect } from "../components/FormSelect";
 import { FormButton } from "../components/FormButton";
 import { colors } from "../theme/colors";
 
+/**
+ * Página: Recetas de Productos (BOM)
+ * Ruta: /settings/recipes
+ *
+ * BP-048 (revisión 2): se elimina por completo la dependencia de
+ * data/products.ts. La receta ES el producto — no necesita enlazarse
+ * a un catálogo externo.
+ *
+ * Tipos de receta:
+ * - Semielaborado: tiene inventario propio (tracksInventory = true).
+ *   Puede usarse como ingrediente en otras recetas Y puede venderse.
+ *   Ejemplos: Granola a granel, Peanut Butter a granel.
+ * - Producto Terminado: se produce y va al inventario de venta.
+ *   No tiene inventario propio en el sistema — se vende directo.
+ *   Ejemplos: Honestly Bar Classic, Granola 50g.
+ *
+ * La distinción clave: un Semielaborado aparece en el inventario con
+ * su propio stock; un Producto Terminado va al inventario de
+ * finishedGoods (indexado por recipe.id).
+ *
+ * productionExecutionService usa recipe.tracksInventory para decidir
+ * a dónde sumar el resultado: true → recipeStock, false → finishedGoods.
+ */
+
+type ProductType = "semiFinished" | "finished";
 type ItemKind = "rawMaterial" | "componentRecipe";
 
-const emptyRecipe = (): Partial<Recipe> => ({
-  code: "",
-  name: "",
-  productId: undefined,
-  yieldQuantity: 1,
-  yieldUnit: "Gramos",
-  items: [],
-  active: true,
-  tracksInventory: false,
-  unit: "Gramos",
-  minimumStock: 0,
-});
+function productTypeLabel(t: ProductType): string {
+  return t === "semiFinished"
+    ? "Semielaborado — tiene inventario propio. Puede usarse como ingrediente y/o venderse (ej. Granola a granel, Peanut Butter)"
+    : "Producto Terminado — va al inventario de venta al confirmarse su producción (ej. Barras, Granola empacada)";
+}
 
-/**
- * Página: Recetas de Productos (Semielaborados y Terminados)
- * Ruta: /settings/recipes — accesible desde Configuración.
- *
- * BP-041 (fix): renombrado de RecipeconfigPage.tsx → RecipeConfigPage.tsx
- * para que el import en AppRouter.tsx coincida con el nombre real del
- * archivo. En Windows el build funcionaba (case-insensitive), pero en
- * Linux/Vercel fallaba con Module not found.
- */
+function recipeToProductType(r: Recipe): ProductType {
+  return r.tracksInventory ? "semiFinished" : "finished";
+}
+
+function emptyRecipe(): Partial<Recipe> & { productType: ProductType } {
+  return {
+    code: "",
+    name: "",
+    productType: "finished",
+    items: [],
+    active: true,
+    tracksInventory: false,
+    unit: "Gramos",
+    minimumStock: 0,
+    yieldQuantity: 1,
+    yieldUnit: "Gramos",
+    version: 1,
+  };
+}
+
 export default function RecipeConfigPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Partial<Recipe> | null>(null);
+  const [editing, setEditing] = useState<(Partial<Recipe> & { productType: ProductType }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [itemKind, setItemKind] = useState<ItemKind>("rawMaterial");
@@ -56,17 +83,18 @@ export default function RecipeConfigPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   function startNew() {
     setEditing(emptyRecipe());
     setError(null);
+    setItemKind("rawMaterial");
+    setSelectedSourceId("");
+    setItemQuantity(0);
   }
 
   function startEdit(r: Recipe) {
-    setEditing({ ...r, items: [...r.items] });
+    setEditing({ ...r, items: [...r.items], productType: recipeToProductType(r) });
     setError(null);
   }
 
@@ -92,32 +120,36 @@ export default function RecipeConfigPage() {
     return "?";
   }
 
+  function typeLabel(r: Recipe): string {
+    return r.tracksInventory ? "Semielaborado" : "Producto Terminado";
+  }
+
   async function handleSave() {
     setError(null);
-    if (!editing?.code?.trim()) {
-      setError("El código de la receta es obligatorio.");
-      return;
-    }
-    if (!editing.items || editing.items.length === 0) {
-      setError("Agrega al menos un ingrediente.");
-      return;
-    }
+    if (!editing?.code?.trim()) { setError("El código es obligatorio."); return; }
+    if (!editing?.name?.trim()) { setError("El nombre es obligatorio."); return; }
+    if (!editing.items || editing.items.length === 0) { setError("Agrega al menos un ingrediente."); return; }
+
+    const isSemi = editing.productType === "semiFinished";
+
+    const recipe: Recipe = {
+      id: editing.id ?? crypto.randomUUID(),
+      code: editing.code,
+      name: editing.name,
+      // productId ya no se usa — la receta es el producto
+      productId: undefined,
+      version: editing.version ?? 1,
+      yieldQuantity: 1,
+      yieldUnit: editing.unit ?? "Gramos",
+      items: editing.items,
+      active: editing.active ?? true,
+      tracksInventory: isSemi,
+      unit: isSemi ? (editing.unit ?? "Gramos") : undefined,
+      currentStock: editing.currentStock ?? (editing.id ? undefined : 0),
+      minimumStock: isSemi ? (editing.minimumStock ?? 0) : undefined,
+    };
+
     try {
-      const recipe: Recipe = {
-        id: editing.id ?? crypto.randomUUID(),
-        code: editing.code,
-        name: editing.name || editing.code,
-        productId: editing.productId || undefined,
-        version: editing.version ?? 1,
-        yieldQuantity: editing.yieldQuantity ?? 1,
-        yieldUnit: editing.yieldUnit ?? "Gramos",
-        items: editing.items,
-        active: editing.active ?? true,
-        tracksInventory: editing.tracksInventory ?? false,
-        unit: editing.tracksInventory ? editing.unit ?? "Gramos" : undefined,
-        currentStock: editing.currentStock ?? (editing.id ? undefined : 0),
-        minimumStock: editing.tracksInventory ? editing.minimumStock ?? 0 : undefined,
-      };
       await recipeStockService.saveRecipe(recipe);
       setEditing(null);
       await load();
@@ -127,7 +159,7 @@ export default function RecipeConfigPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("¿Eliminar esta receta? Esto no afecta el stock ya producido, solo la fórmula.")) return;
+    if (!confirm("¿Eliminar esta receta? El stock ya producido no se verá afectado.")) return;
     await recipeStockService.deleteRecipe(id);
     await load();
   }
@@ -140,31 +172,39 @@ export default function RecipeConfigPage() {
     marginBottom: "24px",
   };
 
+  if (loading) return <p style={{ color: colors.textMuted }}>Cargando...</p>;
+
   return (
     <div style={{ maxWidth: "720px" }}>
-      <h1 style={{ color: colors.text }}>Recetas de Productos</h1>
+      <h1 style={{ color: colors.text }}>Recetas de Productos (BOM)</h1>
       <p style={{ color: colors.textMuted, marginBottom: "24px" }}>
-        Semielaborados (con inventario propio, ej. Granola a granel) y productos terminados vendibles. Esto es lo
-        que usa Producción para calcular qué sacar de almacén.
+        Cada receta define los ingredientes de un producto. Al confirmar una producción,
+        el sistema descuenta los ingredientes y suma el resultado al inventario automáticamente.
       </p>
 
-      {loading && <p style={{ color: colors.textMuted }}>Cargando...</p>}
-
-      {!loading && !editing && (
+      {!editing && (
         <>
           <FormButton type="button" onClick={startNew} style={{ marginBottom: "20px" }}>
             + Nueva receta
           </FormButton>
+
+          {recipes.length === 0 && (
+            <p style={{ color: colors.textMuted }}>No hay recetas todavía.</p>
+          )}
 
           {recipes.map((r) => (
             <div key={r.id} style={{ ...sectionStyle, padding: "16px 20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <strong style={{ color: colors.text }}>{r.name ?? r.code}</strong>
+                  <div style={{ color: colors.textMuted, fontSize: "12px", marginTop: "2px" }}>
+                    Código: {r.code} — {typeLabel(r)}
+                    {r.tracksInventory && ` — Stock: ${r.currentStock ?? 0} ${r.unit ?? ""}`}
+                  </div>
                   <div style={{ color: colors.textMuted, fontSize: "12px" }}>
-                    {r.code} — rinde {r.yieldQuantity} {r.yieldUnit}
-                    {r.tracksInventory && " — semielaborado con inventario propio"}
-                    {r.productId && " — vendible"}
+                    {r.items.length} ingrediente{r.items.length !== 1 ? "s" : ""}:{" "}
+                    {r.items.slice(0, 3).map((item) => itemLabel(item)).join(", ")}
+                    {r.items.length > 3 ? "..." : ""}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
@@ -183,48 +223,74 @@ export default function RecipeConfigPage() {
 
       {editing && (
         <div style={sectionStyle}>
-          <h2 style={{ color: colors.text, marginTop: 0 }}>{editing.id ? "Editar receta" : "Nueva receta"}</h2>
+          <h2 style={{ color: colors.text, marginTop: 0 }}>
+            {editing.id ? "Editar receta" : "Nueva receta"}
+          </h2>
 
-          <FormInput label="Código" value={editing.code ?? ""} onChange={(e) => setEditing({ ...editing, code: e.target.value })} />
-          <FormInput label="Nombre" value={editing.name ?? ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+          <FormInput
+            label="Código (codificación interna del negocio, ej. BAR-001)"
+            value={editing.code ?? ""}
+            onChange={(e) => setEditing({ ...editing, code: e.target.value })}
+          />
+          <FormInput
+            label="Nombre del producto"
+            value={editing.name ?? ""}
+            onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+          />
 
-          <FormSelect label="¿Es un producto vendible? (opcional)" value={editing.productId ?? ""} onChange={(e) => setEditing({ ...editing, productId: e.target.value || undefined })}>
-            <option value="">No — es un semielaborado interno</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ color: colors.textMuted, fontSize: "13px", display: "block", marginBottom: "10px" }}>
+              Tipo de producto
+            </label>
+            {(["semiFinished", "finished"] as ProductType[]).map((t) => (
+              <label key={t} style={{ display: "flex", alignItems: "flex-start", gap: "10px", color: colors.text, fontSize: "13px", marginBottom: "10px", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="productType"
+                  value={t}
+                  checked={editing.productType === t}
+                  onChange={() => setEditing({ ...editing, productType: t })}
+                  style={{ marginTop: "2px", flexShrink: 0 }}
+                />
+                {productTypeLabel(t)}
+              </label>
             ))}
-          </FormSelect>
-
-          <div style={{ display: "flex", gap: "12px" }}>
-            <div style={{ flex: 1 }}>
-              <FormInput label="Rinde (cantidad por lote)" type="number" value={editing.yieldQuantity ?? 1} onChange={(e) => setEditing({ ...editing, yieldQuantity: Number(e.target.value) })} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <FormInput label="Unidad de rendimiento" value={editing.yieldUnit ?? ""} onChange={(e) => setEditing({ ...editing, yieldUnit: e.target.value })} placeholder="Gramos, Barra (50g)..." />
-            </div>
           </div>
 
-          <label style={{ display: "flex", alignItems: "center", gap: "8px", color: colors.text, margin: "16px 0" }}>
-            <input type="checkbox" checked={editing.tracksInventory ?? false} onChange={(e) => setEditing({ ...editing, tracksInventory: e.target.checked })} />
-            Semielaborado con inventario propio (no se desarma al usarse en otra receta)
-          </label>
-
-          {editing.tracksInventory && (
-            <div style={{ display: "flex", gap: "12px" }}>
-              <div style={{ flex: 1 }}>
-                <FormInput label="Unidad de stock" value={editing.unit ?? ""} onChange={(e) => setEditing({ ...editing, unit: e.target.value })} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <FormInput label="Stock mínimo" type="number" value={editing.minimumStock ?? 0} onChange={(e) => setEditing({ ...editing, minimumStock: Number(e.target.value) })} />
+          {editing.productType === "semiFinished" && (
+            <div style={{ background: colors.card, borderRadius: "10px", padding: "16px", marginBottom: "16px" }}>
+              <p style={{ color: colors.textMuted, fontSize: "12px", margin: "0 0 12px" }}>
+                Al producir este semielaborado, su stock aumenta y queda disponible
+                para usarse en otras recetas o venderse directamente desde Ventas.
+              </p>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <div style={{ flex: 1 }}>
+                  <FormInput
+                    label="Unidad de stock"
+                    value={editing.unit ?? "Gramos"}
+                    onChange={(e) => setEditing({ ...editing, unit: e.target.value })}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <FormInput
+                    label="Stock mínimo"
+                    type="number"
+                    value={editing.minimumStock ?? 0}
+                    onChange={(e) => setEditing({ ...editing, minimumStock: Number(e.target.value) })}
+                  />
+                </div>
               </div>
             </div>
           )}
 
-          <h3 style={{ color: colors.text, marginTop: "20px" }}>Ingredientes</h3>
+          <h3 style={{ color: colors.text, marginTop: "20px", marginBottom: "12px" }}>
+            Ingredientes
+          </h3>
+
           {(editing.items ?? []).length > 0 && (
-            <ul style={{ color: colors.text, paddingLeft: "18px" }}>
+            <ul style={{ color: colors.text, paddingLeft: "18px", marginBottom: "16px" }}>
               {(editing.items ?? []).map((item, idx) => (
-                <li key={idx}>
+                <li key={idx} style={{ marginBottom: "6px" }}>
                   {itemLabel(item)} — {item.quantity} {item.unit}{" "}
                   <button onClick={() => removeItem(idx)} style={{ background: "transparent", border: "none", color: colors.danger, cursor: "pointer", fontSize: "12px" }}>
                     Quitar
@@ -234,17 +300,32 @@ export default function RecipeConfigPage() {
             </ul>
           )}
 
-          <FormSelect label="Tipo de ingrediente" value={itemKind} onChange={(e) => { setItemKind(e.target.value as ItemKind); setSelectedSourceId(""); }}>
-            <option value="rawMaterial">Materia prima</option>
-            <option value="componentRecipe">Semielaborado (otra receta)</option>
-          </FormSelect>
+          <div style={{ marginBottom: "12px" }}>
+            <label style={{ color: colors.textMuted, fontSize: "13px", display: "block", marginBottom: "6px" }}>
+              Tipo de ingrediente
+            </label>
+            <select
+              value={itemKind}
+              onChange={(e) => { setItemKind(e.target.value as ItemKind); setSelectedSourceId(""); }}
+              style={{ background: colors.card, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: "8px", padding: "8px 12px", width: "100%", fontSize: "13px", marginBottom: "10px" }}
+            >
+              <option value="rawMaterial">Materia prima</option>
+              <option value="componentRecipe">Semielaborado (otra receta con inventario propio)</option>
+            </select>
 
-          <FormSelect label={itemKind === "rawMaterial" ? "Materia prima" : "Semielaborado"} value={selectedSourceId} onChange={(e) => setSelectedSourceId(e.target.value)}>
-            <option value="">Selecciona</option>
-            {itemKind === "rawMaterial"
-              ? rawMaterials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)
-              : recipes.filter((r) => r.tracksInventory && r.id !== editing.id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </FormSelect>
+            <select
+              value={selectedSourceId}
+              onChange={(e) => setSelectedSourceId(e.target.value)}
+              style={{ background: colors.card, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: "8px", padding: "8px 12px", width: "100%", fontSize: "13px" }}
+            >
+              <option value="">Selecciona</option>
+              {itemKind === "rawMaterial"
+                ? rawMaterials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)
+                : recipes
+                    .filter((r) => r.tracksInventory && r.id !== editing.id)
+                    .map((r) => <option key={r.id} value={r.id}>{r.name ?? r.code}</option>)}
+            </select>
+          </div>
 
           <div style={{ display: "flex", gap: "12px" }}>
             <div style={{ flex: 1 }}>
@@ -254,7 +335,10 @@ export default function RecipeConfigPage() {
               <FormInput label="Unidad" value={itemUnit} onChange={(e) => setItemUnit(e.target.value)} />
             </div>
           </div>
-          <FormButton type="button" variant="secondary" onClick={addItemToRecipe}>Agregar ingrediente</FormButton>
+
+          <FormButton type="button" variant="secondary" onClick={addItemToRecipe}>
+            Agregar ingrediente
+          </FormButton>
 
           {error && <p style={{ color: colors.danger, marginTop: "12px" }}>⚠️ {error}</p>}
 

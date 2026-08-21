@@ -64,9 +64,10 @@ export async function confirmProduction(
   }
 
   // Sumar al inventario de destino
-  if (recipe.productId) {
-    // Producto terminado vendible → Firestore (BP-042: ahora async)
-    await finishedGoodsInventoryService.increaseStock(recipe.productId, producedQuantity);
+  if (!recipe.tracksInventory) {
+    // Producto terminado → indexado por recipe.id (BP-048: productId eliminado,
+    // la receta es el producto — se usa recipe.id como clave en finishedGoods)
+    await finishedGoodsInventoryService.increaseStock(recipe.id, producedQuantity);
   } else {
     // Semielaborado con inventario propio → Firestore (ya era async)
     await recipeStockService.increaseStock(recipe.id, producedQuantity);
