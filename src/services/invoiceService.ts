@@ -1,11 +1,19 @@
 /**
- * Servicio: Facturación. BP-035: calcula el monto REAL a cobrar según el
- * agente de retención del cliente, y es quien ajusta el saldo del
- * cliente (no salesService — Sale no sabe de impuestos, Invoice sí).
+ * Servicio: Facturación
  *
- * Fórmula: netAmountDue = baseImponible + ivaAmount - retainedAmount
- * retentionFraction: none → 0 (paga todo) | agent_75 → 0.75 (paga 25%
- * del IVA) | agent_100 → 1 (no paga IVA, solo la base).
+ * BP-035: calcula netAmountDue según agente de retención del cliente.
+ * BP-047: calcula IVA solo sobre los ítems NO exentos. Los ítems con
+ * isVatExempt = true van a exemptAmount y no generan IVA.
+ *
+ * Fórmula por línea:
+ *   - Exenta:  lineTotal va a exemptAmount, IVA = 0
+ *   - Gravada: lineTotal va a baseImponible, IVA = lineTotal * ivaPercentage/100
+ *
+ * Total factura = exemptAmount + baseImponible + ivaAmount
+ * netAmountDue  = total - retainedAmount
+ *
+ * Regla ADR-009: campos nuevos (exemptAmount, isVatExempt) se leen con
+ * ?? 0 / ?? false en cualquier lugar que consulte facturas antiguas.
  */
 import { collection, doc, getDocs, runTransaction, setDoc } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
@@ -21,7 +29,18 @@ function invoicesCollectionRef() {
 
 export async function getInvoices(): Promise<Invoice[]> {
   const snap = await getDocs(invoicesCollectionRef());
-  return snap.docs.map((d) => d.data() as Invoice);
+  return snap.docs.map((d) => {
+    const data = d.data() as Invoice;
+    // Respaldo ADR-009 para facturas anteriores a BP-047
+    return {
+      ...data,
+      exemptAmount: data.exemptAmount ?? 0,
+      lines: (data.lines ?? []).map((l) => ({
+        ...l,
+        isVatExempt: l.isVatExempt ?? false,
+      })),
+    };
+  });
 }
 
 export async function getInvoiceBySaleId(saleId: string): Promise<Invoice | undefined> {
@@ -57,13 +76,22 @@ export async function createInvoiceFromSale(
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     lineTotal: item.quantity * item.unitPrice,
+    isVatExempt: item.isVatExempt ?? false,
   }));
 
-  const baseImponible = lines.reduce((sum, l) => sum + l.lineTotal, 0);
+  // Separar base imponible de monto exento — BP-047
+  const exemptAmount = lines
+    .filter((l) => l.isVatExempt)
+    .reduce((sum, l) => sum + l.lineTotal, 0);
+
+  const baseImponible = lines
+    .filter((l) => !l.isVatExempt)
+    .reduce((sum, l) => sum + l.lineTotal, 0);
+
   const defaultTax = taxConfig.taxes.find((t) => t.isDefault);
   const ivaPercentage = defaultTax?.percentage ?? 0;
   const ivaAmount = baseImponible * (ivaPercentage / 100);
-  const total = baseImponible + ivaAmount;
+  const total = exemptAmount + baseImponible + ivaAmount;
 
   const retentionFraction = retentionFractionFor(customer);
   const retainedAmount = ivaAmount * retentionFraction;
@@ -78,6 +106,7 @@ export async function createInvoiceFromSale(
     customerTaxId: customer.taxId,
     customerAddress: customer.address,
     lines,
+    exemptAmount,
     baseImponible,
     ivaPercentage,
     ivaAmount,
@@ -88,7 +117,10 @@ export async function createInvoiceFromSale(
     createdAt: new Date().toISOString(),
   };
 
-  await setDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "invoices", invoice.id), invoice);
+  await setDoc(
+    doc(db, "businesses", CURRENT_BUSINESS_ID, "invoices", invoice.id),
+    invoice
+  );
 
   if (sale.paymentType === "credit") {
     await customerBalanceService.adjustBalance(customer.id, netAmountDue);

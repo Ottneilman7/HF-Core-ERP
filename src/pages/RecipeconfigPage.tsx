@@ -136,11 +136,10 @@ export default function RecipeConfigPage() {
       id: editing.id ?? crypto.randomUUID(),
       code: editing.code,
       name: editing.name,
-      // productId ya no se usa — la receta es el producto
       productId: undefined,
       version: editing.version ?? 1,
-      yieldQuantity: 1,
-      yieldUnit: editing.unit ?? "Gramos",
+      yieldQuantity: editing.yieldQuantity ?? 1,
+      yieldUnit: editing.yieldUnit ?? editing.unit ?? "Gramos",
       items: editing.items,
       active: editing.active ?? true,
       tracksInventory: isSemi,
@@ -257,6 +256,35 @@ export default function RecipeConfigPage() {
             ))}
           </div>
 
+          {/* Rendimiento esperado — necesario para que Producción escale los ingredientes */}
+          <div style={{ background: colors.card, borderRadius: "10px", padding: "16px", marginBottom: "16px" }}>
+            <p style={{ color: colors.textMuted, fontSize: "12px", margin: "0 0 12px" }}>
+              <strong>¿Cuánto produce normalmente esta receta?</strong> Es la cantidad esperada
+              cuando preparas todos los ingredientes de arriba. Producción usará esto para
+              calcular proporcionalmente cuánto ingrediente sacar según lo que quieras fabricar.
+              Ejemplo: si la receta tiene 90g de maní y produce 100g de Peanut Butter, pon 100.
+              Si quieres hacer 750g, el sistema pedirá 675g de maní automáticamente.
+            </p>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <div style={{ flex: 1 }}>
+                <FormInput
+                  label="Cantidad esperada de esta receta"
+                  type="number"
+                  value={editing.yieldQuantity ?? 1}
+                  onChange={(e) => setEditing({ ...editing, yieldQuantity: Number(e.target.value) })}
+                  min={1}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <FormInput
+                  label="Unidad"
+                  value={editing.yieldUnit ?? "Gramos"}
+                  onChange={(e) => setEditing({ ...editing, yieldUnit: e.target.value, unit: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
           {editing.productType === "semiFinished" && (
             <div style={{ background: colors.card, borderRadius: "10px", padding: "16px", marginBottom: "16px" }}>
               <p style={{ color: colors.textMuted, fontSize: "12px", margin: "0 0 12px" }}>
@@ -264,13 +292,6 @@ export default function RecipeConfigPage() {
                 para usarse en otras recetas o venderse directamente desde Ventas.
               </p>
               <div style={{ display: "flex", gap: "12px" }}>
-                <div style={{ flex: 1 }}>
-                  <FormInput
-                    label="Unidad de stock"
-                    value={editing.unit ?? "Gramos"}
-                    onChange={(e) => setEditing({ ...editing, unit: e.target.value })}
-                  />
-                </div>
                 <div style={{ flex: 1 }}>
                   <FormInput
                     label="Stock mínimo"
