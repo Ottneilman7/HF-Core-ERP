@@ -1,0 +1,8 @@
+# Claves locales de Claude Code / OmniRoute
+.claude/settings.local.json
+
+# Archivos temporales de sistema y Excel
+~$*
+*.tmp
+node_modules/
+.DS_Store
