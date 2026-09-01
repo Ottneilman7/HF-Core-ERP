@@ -6,7 +6,6 @@ import * as rawMaterialInventoryService from "../services/rawMaterialInventorySe
 import * as recipeStockService from "../services/recipeStockService";
 import * as customerBalanceService from "../services/customerBalanceService";
 import * as invoiceService from "../services/invoiceService";
-import * as configService from "../services/configService";
 import type { Sale, SaleItem, PaymentType } from "../models/Sale";
 import type { Invoice } from "../models/Invoice";
 import type { RawMaterial } from "../models/RawMaterial";
@@ -170,13 +169,8 @@ export default function SalesPage() {
     setError(null);
     if (!selectedCustomerId || draftItems.length === 0) return;
     try {
-      const sale = await salesService.createSale(selectedCustomerId, draftItems, paymentType);
-      const customer = customers.find((c) => c.id === selectedCustomerId);
-      if (customer) {
-        const taxConfig = await configService.getTaxConfig();
-        const labels = draftItems.map(itemLabel);
-        await invoiceService.createInvoiceFromSale(sale, customer, labels, taxConfig);
-      }
+      const labels = draftItems.map(itemLabel);
+      await salesService.createSale(selectedCustomerId, draftItems, paymentType, labels);
       setDraftItems([]);
       await loadCustomers();
       await loadSalesAndInvoices();

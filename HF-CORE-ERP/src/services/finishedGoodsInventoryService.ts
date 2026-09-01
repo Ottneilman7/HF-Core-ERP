@@ -1,10 +1,10 @@
-import { collection, doc, getDoc, getDocs, runTransaction } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, runTransaction, type Transaction } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 
 function finishedGoodsCol() {
   return collection(db, "businesses", CURRENT_BUSINESS_ID, "finishedGoods");
 }
-function productDocRef(productId: string) {
+export function productDocRef(productId: string) {
   return doc(db, "businesses", CURRENT_BUSINESS_ID, "finishedGoods", productId);
 }
 
@@ -42,6 +42,11 @@ export async function decreaseStock(productId: string, quantity: number): Promis
     if (quantity > current) throw new Error(`Inventario insuficiente del producto ${productId} (disponible: ${current}).`);
     tx.set(ref, { stock: current - quantity }, { merge: true });
   });
+}
+
+/** Variante para usar dentro de una transacción ya abierta (ver productionExecutionService). */
+export function increaseStockInTx(tx: Transaction, productId: string, quantity: number, currentSnapStock: number): void {
+  tx.set(productDocRef(productId), { stock: currentSnapStock + quantity }, { merge: true });
 }
 
 // BP-045: ajuste directo de stock (requiere PIN de supervisor)

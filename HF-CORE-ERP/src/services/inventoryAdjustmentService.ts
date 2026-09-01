@@ -4,7 +4,16 @@
  *
  * Cualquier modificación manual de stock queda registrada con:
  * quién, cuándo, cantidad anterior, cantidad nueva y motivo.
- * PIN de supervisor requerido (hardcoded en Fase A — Backlog: mover a config).
+ *
+ * PIN de supervisor: viene de VITE_SUPERVISOR_PIN (variable de entorno,
+ * definida en .env.local — NUNCA se commitea a git). Antes vivía como
+ * texto plano en este archivo, lo cual lo exponía en el repo público de
+ * GitHub. Ver .env.example para la variable requerida.
+ *
+ * Sigue siendo un control débil (un solo PIN compartido, sin auditoría de
+ * quién lo usa más allá del campo `supervisorNote`) — el Backlog real es
+ * reemplazarlo por roles de usuario reales (ver H6 en la auditoría de
+ * arquitectura).
  */
 import { collection, doc, getDocs, setDoc } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
@@ -12,7 +21,15 @@ import * as rawMaterialInventoryService from "./rawMaterialInventoryService";
 import * as recipeStockService from "./recipeStockService";
 import * as finishedGoodsInventoryService from "./finishedGoodsInventoryService";
 
-const SUPERVISOR_PIN = "$oy0770"; // Backlog: mover a configService
+const SUPERVISOR_PIN = import.meta.env.VITE_SUPERVISOR_PIN as string | undefined;
+
+if (!SUPERVISOR_PIN && import.meta.env.DEV) {
+  console.warn(
+    "VITE_SUPERVISOR_PIN no está definido. Los ajustes de inventario que " +
+    "requieren PIN de supervisor quedarán bloqueados hasta configurarlo " +
+    "en .env.local."
+  );
+}
 
 export interface InventoryAdjustment {
   id: string;
@@ -31,6 +48,7 @@ function adjCol() {
 }
 
 export function verifyPin(pin: string): boolean {
+  if (!SUPERVISOR_PIN) return false; // sin PIN configurado, no se autoriza nada
   return pin === SUPERVISOR_PIN;
 }
 
