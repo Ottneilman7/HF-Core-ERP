@@ -1,0 +1,125 @@
+# BP-046
+
+Historial de Merma — Pantalla /waste con Filtro y Desglose por Producto
+
+Versión: 1.1 (actualizada con mejoras post-revisión CEO)
+Última actualización: 21/08/2026
+
+---
+
+## Objetivo
+
+Dar visibilidad al registro de merma guardado en Firestore (BP-040),
+con selector de rango de fechas libre, desglose por producto y exportar CSV.
+
+---
+
+## Archivos
+
+### `src/pages/WasteLogPage.tsx` — CREADO / ACTUALIZADO
+- Ruta: `/waste`
+- Selector de rango Desde/Hasta con atajos: Hoy, Esta semana, Este mes.
+- Resumen del período: registros, merma de proceso, merma por error, total.
+- **Desglose por producto**: agrupa todos los registros del período por
+  producto/semielaborado/materia prima, muestra proceso + error + total
+  por ítem, ordenado de mayor a menor pérdida.
+- Detalle completo de cada registro con color diferenciado.
+- Botón "Exportar CSV" — descarga el rango seleccionado.
+
+### `src/services/wasteLogService.ts` — CORREGIDO
+- Fix: `logErrorWaste` llamaba a `finishedGoodsInventoryService.decreaseStock`
+  sin `await` — async desde BP-042. Stock no se descontaba al registrar
+  pérdida de producto terminado.
+
+### `src/router/AppRouter.tsx`
+- Ruta `/waste` → `WasteLogPage` agregada.
+
+---
+
+## Enlace desde Inventario
+
+`/inventory` tiene enlace directo a `/waste` y a `/adjustments`.
+
+---
+
+## Backlog explícito
+
+- Pérdidas en $ — requiere costeo de productos (módulo PVP futuro).
+  El CEO indicó que cuando se tenga la estructura de costo y el PVP definidos,
+  la merma debe mostrar el valor económico de la pérdida, no solo la cantidad.
+- Registro manual de merma por error directamente desde /waste (hoy solo
+  desde Inventario → Registrar Pérdida).
+- Exportar historial de ajustes y merma en formato Excel (.xlsx).
+
+## Estado
+
+✅ Cerrado — 21/08/2026
+
+
+
+
+
+
+BP- anterior que fue modificado arriba
+# BP-046
+
+Historial de Merma — Pantalla `/waste`
+
+Versión: 1.0
+Última actualización: 20/08/2026
+Origen: revisión del CEO — la merma ya se guardaba en Firestore (BP-040)
+pero no había pantalla para verla ni controlarla.
+
+---
+
+## Objetivo
+
+Dar visibilidad al registro de merma que ya existía en Firestore, con
+filtro por mes y totales de pérdida — para que el CEO pueda calcular
+cuánto se pierde mensualmente y tomar decisiones de mejora.
+
+Dar visibilidad al registro de merma guardado en Firestore (BP-040), con selector de rango de fechas libre, desglose por producto y exportar CSV.
+
+## Archivos
+
+### `src/pages/WasteLogPage.tsx` — NUEVO
+- Ruta: `/waste`
+- Lee todos los registros de `wasteLogService.getWasteLog()`
+- Ordena de más reciente a más antiguo
+- Filtro por mes con selector desplegable
+- Total de merma del período seleccionado
+- Dos tipos visualizados: "proceso" (borde naranja) y "error" (borde rojo)
+- Para merma de proceso: muestra planeado vs. real
+
+### `src/services/wasteLogService.ts` — CORREGIDO
+- Fix: `logErrorWaste` llamaba a `finishedGoodsInventoryService.decreaseStock`
+  sin `await` — ese servicio es async desde BP-042. Sin el await, el
+  inventario de producto terminado no se descontaba al registrar una merma
+  por error.
+
+### `src/router/AppRouter.tsx` — ACTUALIZADO
+- Ruta `/waste` → `WasteLogPage` agregada.
+
+## Enlace desde Producción
+
+En `/production`, al confirmar una producción con merma, el mensaje de
+confirmación incluye un enlace directo a `/waste` para ver el registro
+recién creado.
+
+## Fuera de alcance (Backlog)
+
+- Registro manual de merma por error desde `/waste` directamente
+  (hoy solo se puede desde Producción al confirmar con cantidad real menor).
+  Esto es la "Parte B" de BP-040, pendiente de construir.
+- Exportar historial de merma en CSV.
+
+## Checklist de cierre (Regla 20, TEAM_RULES)
+
+- [x] `WasteLogPage.tsx` creado
+- [x] `wasteLogService.ts` corregido (await en logErrorWaste)
+- [x] `AppRouter.tsx` actualizado con ruta /waste
+- [x] `npm run build` ✅
+- [x] Verificar en /waste que aparecen los registros de merma
+- [x] git commit + push
+
+## Estado
