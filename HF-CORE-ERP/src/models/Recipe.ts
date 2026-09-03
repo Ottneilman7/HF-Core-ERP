@@ -26,4 +26,11 @@ export interface Recipe {
   unit?: string;             // unidad de este stock (ej. "Gramos")
   currentStock?: number;
   minimumStock?: number;
+
+  // --- Módulo de Costeo/Precios (BP-XXX) ---
+  // Todos opcionales: una receta puede no tener aún su precio configurado.
+  targetProduction?: number;        // "Producción mínima estimada" mensual, en yieldUnit — base para prorratear CIF y para el punto de equilibrio
+  targetMarginPercentage?: number;  // margen deseado para ESTE producto (si no se define, se usa defaultMarginPercentage del negocio)
+  manufacturingTimeMinutes?: number; // tiempo de elaboración del LOTE completo (yieldQuantity unidades) — solo se usa si el negocio eligió el método ABC por tiempo
+  sellingPrice?: number;            // precio de venta vigente (manual, o aceptado desde el simulador)
 }
