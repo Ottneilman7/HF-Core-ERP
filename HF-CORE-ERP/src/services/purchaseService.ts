@@ -7,21 +7,46 @@ import * as recipeStockService from "./recipeStockService";
 import * as finishedGoodsInventoryService from "./finishedGoodsInventoryService";
 
 function suppliersCol() { return collection(db, "businesses", CURRENT_BUSINESS_ID, "suppliers"); }
+function supplierDocRef(id: string) { return doc(db, "businesses", CURRENT_BUSINESS_ID, "suppliers", id); }
 function ordersCol() { return collection(db, "businesses", CURRENT_BUSINESS_ID, "purchaseOrders"); }
 function orderRef(id: string) { return doc(db, "businesses", CURRENT_BUSINESS_ID, "purchaseOrders", id); }
+
+const IVA_PCT = 16; // misma tasa hardcodeada que ya usa PurchasesPage.tsx — se replica aquí para calcular el total que se le debe al proveedor
+
+/** Total de una orden con IVA (16% sobre ítems no exentos) — misma fórmula que ya usa PurchasesPage.tsx. */
+export function calculateOrderTotal(order: PurchaseOrder): number {
+  const taxable = order.items.filter((i) => !(i.isVatExempt ?? false)).reduce((s, i) => s + i.quantity * i.unitCost, 0);
+  const exempt = order.items.filter((i) => i.isVatExempt ?? false).reduce((s, i) => s + i.quantity * i.unitCost, 0);
+  return Math.round((exempt + taxable * (1 + IVA_PCT / 100)) * 100) / 100;
+}
+
+export async function getSupplierById(id: string): Promise<Supplier | undefined> {
+  const snap = await getDoc(supplierDocRef(id));
+  return snap.exists() ? (snap.data() as Supplier) : undefined;
+}
+
+/** Cuentas por Pagar (BP-XXX): ajusta el saldo que le debemos a un proveedor. Espejo de customerBalanceService.adjustBalance. */
+export async function adjustSupplierBalance(supplierId: string, amount: number): Promise<void> {
+  const current = await getSupplierById(supplierId);
+  if (!current) throw new Error(`Proveedor no encontrado: ${supplierId}`);
+  if (!Number.isFinite(amount)) throw new Error(`Monto de ajuste inválido para ${supplierId}.`);
+  const safeCurrentBalance = Number.isFinite(current.balance) ? (current.balance as number) : 0;
+  const newBalance = Math.round((safeCurrentBalance + amount) * 100) / 100;
+  await setDoc(supplierDocRef(supplierId), { ...current, balance: newBalance });
+}
 
 export async function getSuppliers(): Promise<Supplier[]> {
   return (await getDocs(suppliersCol())).docs.map((d) => d.data() as Supplier);
 }
-export async function createSupplier(input: Omit<Supplier, "id" | "createdAt">): Promise<Supplier> {
-  const s: Supplier = { ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
-  await setDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "suppliers", s.id), s);
+export async function createSupplier(input: Omit<Supplier, "id" | "createdAt" | "balance">): Promise<Supplier> {
+  const s: Supplier = { ...input, id: crypto.randomUUID(), balance: 0, createdAt: new Date().toISOString() };
+  await setDoc(supplierDocRef(s.id), s);
   return s;
 }
 export async function updateSupplier(id: string, updates: Partial<Omit<Supplier, "id" | "createdAt">>): Promise<void> {
-  const snap = await getDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "suppliers", id));
+  const snap = await getDoc(supplierDocRef(id));
   if (!snap.exists()) throw new Error(`Proveedor no encontrado: ${id}`);
-  await setDoc(doc(db, "businesses", CURRENT_BUSINESS_ID, "suppliers", id), { ...snap.data(), ...updates });
+  await setDoc(supplierDocRef(id), { ...snap.data(), ...updates });
 }
 export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   return (await getDocs(ordersCol())).docs.map((d) => d.data() as PurchaseOrder);
@@ -63,6 +88,11 @@ export async function receivePurchaseOrder(orderId: string): Promise<PurchaseOrd
   }
   const updated = { ...order, status: "received" as const, receivedAt: new Date().toISOString() };
   await setDoc(orderRef(orderId), updated);
+
+  // Cuentas por Pagar (BP-XXX): solo las compras a crédito generan deuda con el proveedor.
+  if (order.paymentTerm === "credit") {
+    await adjustSupplierBalance(order.supplierId, calculateOrderTotal(order));
+  }
   return updated;
 }
 
@@ -80,5 +110,11 @@ export async function voidPurchaseOrder(orderId: string): Promise<PurchaseOrder>
   }
   const updated = { ...order, status: "voided" as const };
   await setDoc(orderRef(orderId), updated);
+
+  // Cuentas por Pagar (BP-XXX): si ya se había recibido a crédito (y por
+  // tanto ya se le sumó deuda al proveedor), revertirla al anular.
+  if (order.status === "received" && order.paymentTerm === "credit") {
+    await adjustSupplierBalance(order.supplierId, -calculateOrderTotal(order));
+  }
   return updated;
 }

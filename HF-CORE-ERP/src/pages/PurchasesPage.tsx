@@ -165,7 +165,10 @@ export default function PurchasesPage() {
           {showNewSupplier ? "Cancelar" : "+ Nuevo proveedor"}
         </FormButton>
       </div>
-      <p style={{ color: colors.textMuted, marginBottom: "20px" }}>Proveedores, órdenes de compra y recepción de mercancía.</p>
+      <p style={{ color: colors.textMuted, marginBottom: "20px" }}>
+        Proveedores, órdenes de compra y recepción de mercancía.{" "}
+        <Link to="/purchases/payments" style={{ color: colors.secondary }}>→ Cuentas por Pagar</Link>
+      </p>
 
       {error && <p style={{ color: colors.danger, marginBottom: "16px" }}>⚠️ {error}</p>}
 
@@ -229,6 +232,9 @@ export default function PurchasesPage() {
                       <strong style={{ color: colors.text }}>{s.tradeName||s.name}</strong>
                       {s.taxId && <div style={{ color: colors.textMuted, fontSize:"12px" }}>RIF: {s.taxId}</div>}
                       {s.city && <div style={{ color: colors.textMuted, fontSize:"12px" }}>{s.city}</div>}
+                      {Number.isFinite(s.balance) && (s.balance as number) > 0.005 && (
+                        <div style={{ color: colors.warning, fontSize:"12px", fontWeight: 600 }}>Debes: ${(s.balance as number).toFixed(2)}</div>
+                      )}
                     </div>
                     <div style={{ display:"flex", gap:"6px" }}>
                       <button onClick={()=>setViewingId(s.id)} style={btn(colors.secondary)}>Ver</button>

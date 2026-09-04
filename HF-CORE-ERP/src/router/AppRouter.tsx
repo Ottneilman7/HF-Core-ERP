@@ -14,6 +14,7 @@ const CustomersPage = lazy(() => import("../pages/CustomersPage"));
 const ProductionPage = lazy(() => import("../pages/ProductionPage"));
 const ConfigPage = lazy(() => import("../pages/ConfigPage"));
 const PurchasesPage = lazy(() => import("../pages/PurchasesPage"));
+const SupplierPaymentsPage = lazy(() => import("../pages/SupplierPaymentsPage"));
 const SalesPage = lazy(() => import("../pages/SalesPage"));
 const FinancePage = lazy(() => import("../pages/FinancePage"));
 const MarketingPage = lazy(() => import("../pages/MarketingPage"));
@@ -60,6 +61,7 @@ function AuthGate() {
               <Route path="/settings/recipes" element={<RecipeConfigPage />} />
               <Route path="/settings/pricing" element={<PricingSimulatorPage />} />
               <Route path="/purchases" element={<PurchasesPage />} />
+              <Route path="/purchases/payments" element={<SupplierPaymentsPage />} />
               <Route path="/sales" element={<SalesPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/marketing" element={<MarketingPage />} />
