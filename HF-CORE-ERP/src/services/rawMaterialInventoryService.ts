@@ -80,3 +80,17 @@ export async function setMinimumStock(rawMaterialId: string, minimumStock: numbe
   if (!current) throw new Error(`Materia prima no encontrada: ${rawMaterialId}`);
   await setDoc(rawMaterialDocRef(rawMaterialId), { ...current, minimumStock });
 }
+
+/**
+ * Corrige el costo unitario registrado SIN afectar el stock (a diferencia
+ * de receiveStock, que solo actualiza el costo como efecto secundario de
+ * una compra real). Existe para arreglar errores de captura — ej. un
+ * costo cargado en la unidad equivocada (por kg en vez de por gramo) —
+ * sin tener que inventar una compra falsa que dañaría el inventario real.
+ */
+export async function setUnitCost(rawMaterialId: string, newUnitCost: number): Promise<void> {
+  if (newUnitCost < 0) throw new Error("El costo unitario no puede ser negativo.");
+  const current = await getRawMaterialById(rawMaterialId);
+  if (!current) throw new Error(`Materia prima no encontrada: ${rawMaterialId}`);
+  await setDoc(rawMaterialDocRef(rawMaterialId), { ...current, unitCost: newUnitCost });
+}

@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, runTransaction, type Transaction } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, runTransaction, setDoc, type Transaction } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 
 function finishedGoodsCol() {
@@ -47,6 +47,28 @@ export async function decreaseStock(productId: string, quantity: number): Promis
 /** Variante para usar dentro de una transacción ya abierta (ver productionExecutionService). */
 export function increaseStockInTx(tx: Transaction, productId: string, quantity: number, currentSnapStock: number): void {
   tx.set(productDocRef(productId), { stock: currentSnapStock + quantity }, { merge: true });
+}
+
+// BP-XXX: stock mínimo de producto terminado (antes solo existía para materia prima)
+export async function getMinimumStock(productId: string): Promise<number> {
+  const snap = await getDoc(productDocRef(productId));
+  if (!snap.exists()) return 0;
+  const val = snap.data()?.minimumStock;
+  return Number.isFinite(val) ? (val as number) : 0;
+}
+
+export async function getAllMinimumStock(): Promise<Record<string, number>> {
+  const snap = await getDocs(finishedGoodsCol());
+  const result: Record<string, number> = {};
+  for (const d of snap.docs) {
+    const val = d.data()?.minimumStock;
+    result[d.id] = Number.isFinite(val) ? (val as number) : 0;
+  }
+  return result;
+}
+
+export async function setMinimumStock(productId: string, minimumStock: number): Promise<void> {
+  await setDoc(productDocRef(productId), { minimumStock }, { merge: true });
 }
 
 // BP-045: ajuste directo de stock (requiere PIN de supervisor)

@@ -56,6 +56,12 @@ export async function saveRecipe(recipe: Recipe): Promise<void> {
 export async function deleteRecipe(id: string): Promise<void> {
   await deleteDoc(recipeDocRef(id));
 }
+// BP-XXX: stock mínimo de semielaborados (antes solo existía para materia prima)
+export async function setMinimumStock(recipeId: string, minimumStock: number): Promise<void> {
+  const current = await getRecipeById(recipeId);
+  if (!current) throw new Error(`Receta no encontrada: ${recipeId}`);
+  await setDoc(recipeDocRef(recipeId), { ...current, minimumStock });
+}
 // BP-045: ajuste directo de stock (requiere PIN de supervisor)
 export async function setStock(recipeId: string, newStock: number): Promise<void> {
   const ref = recipeDocRef(recipeId);

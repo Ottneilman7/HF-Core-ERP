@@ -103,18 +103,77 @@ function AdjustModal({ itemType, itemId, itemName, currentStock, onClose, onSave
   );
 }
 
+interface SettingsAdjustModalProps {
+  itemType: "rawMaterial" | "semiFinished" | "finished";
+  field: "minimumStock" | "unitCost";
+  itemId: string; itemName: string; currentValue: number; unitLabel: string;
+  onClose: () => void; onSaved: () => void;
+}
+/**
+ * Modal gemelo de AdjustModal, pero para campos de CONFIGURACIÓN
+ * (stock mínimo, costo unitario) en vez de stock físico. Misma exigencia
+ * de seguridad: PIN de supervisor + motivo, y queda en el mismo
+ * historial de auditoría (/adjustments) que los ajustes de stock —
+ * antes estos campos se podían cambiar sin ninguna protección.
+ */
+function SettingsAdjustModal({ itemType, field, itemId, itemName, currentValue, unitLabel, onClose, onSaved }: SettingsAdjustModalProps) {
+  const [pin, setPin] = useState(""); const [newValue, setNewValue] = useState(currentValue);
+  const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+
+  const fieldLabel = field === "minimumStock" ? "Stock mínimo" : "Costo unitario";
+
+  async function handleSave() {
+    if (!inventoryAdjustmentService.verifyPin(pin)) { setErr("PIN incorrecto."); return; }
+    if (!reason.trim()) { setErr("Escribe el motivo del cambio."); return; }
+    if (newValue === currentValue) { setErr("El valor nuevo es igual al actual. Modifícalo antes de confirmar."); return; }
+    setSaving(true);
+    try {
+      if (field === "minimumStock") {
+        if (itemType === "rawMaterial") await inventoryAdjustmentService.adjustRawMaterialMinimumStock(itemId, itemName, newValue, reason);
+        else if (itemType === "semiFinished") await inventoryAdjustmentService.adjustSemiFinishedMinimumStock(itemId, itemName, newValue, reason);
+        else await inventoryAdjustmentService.adjustFinishedMinimumStock(itemId, itemName, newValue, reason);
+      } else {
+        await inventoryAdjustmentService.adjustRawMaterialUnitCost(itemId, itemName, newValue, reason);
+      }
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Error"); }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: colors.surface, borderRadius: "16px", padding: "24px", width: "360px", border: `1px solid ${colors.border}` }}>
+        <h3 style={{ color: colors.text, marginTop: 0 }}>{fieldLabel}: {itemName}</h3>
+        <p style={{ color: colors.textMuted, fontSize: "13px" }}>Valor actual: <strong>{field === "unitCost" ? `$${currentValue.toFixed(4)}` : currentValue} {unitLabel}</strong></p>
+        <FormInput label={`${fieldLabel} nuevo`} type="number" min={0} step={field === "unitCost" ? 0.0001 : 1} value={newValue} onChange={(e) => setNewValue(Number(e.target.value))} />
+        <FormInput label="Motivo del cambio" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ej. Corrección de error de captura" />
+        <FormInput label="PIN de supervisor" type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Ingresa el PIN" />
+        {err && <p style={{ color: colors.danger, fontSize: "13px" }}>⚠️ {err}</p>}
+        <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+          <FormButton type="button" onClick={handleSave}>{saving ? "Guardando..." : "Confirmar cambio"}</FormButton>
+          <FormButton type="button" variant="secondary" onClick={onClose}>Cancelar</FormButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InventoryPage() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [semiFinished, setSemiFinished] = useState<Recipe[]>([]);
   const [finishedRecipes, setFinishedRecipes] = useState<Recipe[]>([]);
   const [finishedStock, setFinishedStock] = useState<Record<string, number>>({});
+  const [finishedMinStock, setFinishedMinStock] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [rawGroup, setRawGroup] = useState<string | null>(null);
   const [semiGroup, setSemiGroup] = useState<string | null>(null);
   const [productGroup, setProductGroup] = useState<string | null>(null);
 
-  // Ajuste auditado
+  // Ajuste auditado de STOCK (cantidad)
   const [adjustModal, setAdjustModal] = useState<{ itemType: "rawMaterial"|"semiFinished"|"finished"; itemId: string; itemName: string; currentStock: number } | null>(null);
+
+  // Ajuste auditado de CONFIGURACIÓN (mínimo, costo) — requiere el mismo PIN de supervisor
+  const [settingsModal, setSettingsModal] = useState<{ itemType: "rawMaterial"|"semiFinished"|"finished"; field: "minimumStock"|"unitCost"; itemId: string; itemName: string; currentValue: number; unitLabel: string } | null>(null);
 
   // Merma por error
   const [wasteOpen, setWasteOpen] = useState(false);
@@ -126,31 +185,23 @@ export default function InventoryPage() {
   const [wasteError, setWasteError] = useState<string | null>(null);
   const [wasteSuccess, setWasteSuccess] = useState<string | null>(null);
 
-  // Stock mínimo editable
-  const [editMinId, setEditMinId] = useState<string | null>(null);
-  const [editMinVal, setEditMinVal] = useState<number>(0);
-
   const load = useCallback(async () => {
     setLoading(true);
-    const [materials, recipes, stock] = await Promise.all([
+    const [materials, recipes, stock, minStock] = await Promise.all([
       rawMaterialInventoryService.getEffectiveRawMaterials(),
       recipeStockService.getEffectiveRecipes(),
       finishedGoodsInventoryService.getAllStock(),
+      finishedGoodsInventoryService.getAllMinimumStock(),
     ]);
     setRawMaterials(materials.filter((m) => m.active).sort((a,b) => a.name.localeCompare(b.name)));
     setSemiFinished(recipes.filter((r) => r.active && r.tracksInventory).sort((a,b) => (a.name??a.code).localeCompare(b.name??b.code)));
     setFinishedRecipes(recipes.filter((r) => r.active && !r.tracksInventory).sort((a,b) => (a.name??a.code).localeCompare(b.name??b.code)));
     setFinishedStock(stock);
+    setFinishedMinStock(minStock);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  async function handleSaveMinStock(material: RawMaterial) {
-    await rawMaterialInventoryService.setMinimumStock(material.id, editMinVal);
-    setEditMinId(null);
-    await load();
-  }
 
   async function handleWaste() {
     setWasteError(null); setWasteSuccess(null);
@@ -177,6 +228,9 @@ export default function InventoryPage() {
     <>
       {adjustModal && (
         <AdjustModal {...adjustModal} onClose={() => setAdjustModal(null)} onSaved={() => { setAdjustModal(null); load(); }} />
+      )}
+      {settingsModal && (
+        <SettingsAdjustModal {...settingsModal} onClose={() => setSettingsModal(null)} onSaved={() => { setSettingsModal(null); load(); }} />
       )}
 
       <h1 style={{ color: colors.primary, marginBottom: "8px" }}>Inventario</h1>
@@ -233,19 +287,14 @@ export default function InventoryPage() {
                       Stock: {m.currentStock} {m.unit}
                       {m.currentStock <= (m.minimumStock??0) && " ⚠️ Bajo mínimo"}
                     </div>
-                    {editMinId === m.id ? (
-                      <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
-                        <input type="number" value={editMinVal} min={0} onChange={(e) => setEditMinVal(Number(e.target.value))} style={{ width: "80px", padding: "4px 8px", background: colors.surface, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: "6px", fontSize: "13px" }} />
-                        <span style={{ color: colors.textMuted, fontSize: "12px" }}>{m.unit}</span>
-                        <button onClick={() => handleSaveMinStock(m)} style={{ background: colors.primary, color: "#fff", border: "none", borderRadius: "6px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}>Guardar</button>
-                        <button onClick={() => setEditMinId(null)} style={{ background: "transparent", border: `1px solid ${colors.border}`, color: colors.text, borderRadius: "6px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}>Cancelar</button>
-                      </div>
-                    ) : (
-                      <div style={{ color: colors.textMuted, fontSize: "12px", marginTop: "2px" }}>
-                        Mínimo: {m.minimumStock??0} {m.unit}{" "}
-                        <button onClick={() => { setEditMinId(m.id); setEditMinVal(m.minimumStock??0); }} style={{ background: "transparent", border: "none", color: colors.secondary, cursor: "pointer", fontSize: "12px", padding: 0 }}>Editar</button>
-                      </div>
-                    )}
+                    <div style={{ color: colors.textMuted, fontSize: "12px", marginTop: "2px" }}>
+                      Mínimo: {m.minimumStock??0} {m.unit}{" "}
+                      <button onClick={() => setSettingsModal({ itemType: "rawMaterial", field: "minimumStock", itemId: m.id, itemName: m.name, currentValue: m.minimumStock??0, unitLabel: m.unit })} style={{ background: "transparent", border: "none", color: colors.secondary, cursor: "pointer", fontSize: "12px", padding: 0 }}>Editar</button>
+                    </div>
+                    <div style={{ color: colors.textMuted, fontSize: "12px", marginTop: "2px" }}>
+                      Costo: ${m.unitCost.toFixed(4)} por {m.unit}{" "}
+                      <button onClick={() => setSettingsModal({ itemType: "rawMaterial", field: "unitCost", itemId: m.id, itemName: m.name, currentValue: m.unitCost, unitLabel: m.unit })} style={{ background: "transparent", border: "none", color: colors.secondary, cursor: "pointer", fontSize: "12px", padding: 0 }}>Editar</button>
+                    </div>
                   </div>
                   <button onClick={() => setAdjustModal({ itemType: "rawMaterial", itemId: m.id, itemName: m.name, currentStock: m.currentStock })} style={{ background: "transparent", border: `1px solid ${colors.border}`, color: colors.text, borderRadius: "8px", padding: "4px 10px", fontSize: "12px", cursor: "pointer", flexShrink: 0 }}>
                     Ajustar
@@ -267,7 +316,10 @@ export default function InventoryPage() {
                       Stock: {r.currentStock??0} {r.unit}
                       {(r.currentStock??0) <= (r.minimumStock??0) && " ⚠️ Bajo mínimo"}
                     </div>
-                    <div style={{ color: colors.textMuted, fontSize: "12px" }}>Mínimo: {r.minimumStock??0} {r.unit}</div>
+                    <div style={{ color: colors.textMuted, fontSize: "12px" }}>
+                      Mínimo: {r.minimumStock??0} {r.unit}{" "}
+                      <button onClick={() => setSettingsModal({ itemType: "semiFinished", field: "minimumStock", itemId: r.id, itemName: r.name??r.code, currentValue: r.minimumStock??0, unitLabel: r.unit ?? "" })} style={{ background: "transparent", border: "none", color: colors.secondary, cursor: "pointer", fontSize: "12px", padding: 0 }}>Editar</button>
+                    </div>
                   </div>
                   <button onClick={() => setAdjustModal({ itemType: "semiFinished", itemId: r.id, itemName: r.name??r.code, currentStock: r.currentStock??0 })} style={{ background: "transparent", border: `1px solid ${colors.border}`, color: colors.text, borderRadius: "8px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}>
                     Ajustar
@@ -285,7 +337,14 @@ export default function InventoryPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <strong style={{ color: colors.text }}>{r.name??r.code}</strong>
-                    <div style={{ color: colors.textMuted, fontSize: "13px", marginTop: "4px" }}>Stock: {finishedStock[r.id]??0} unidades</div>
+                    <div style={{ color: (finishedStock[r.id]??0) <= (finishedMinStock[r.id]??0) ? colors.danger : colors.textMuted, fontSize: "13px", marginTop: "4px" }}>
+                      Stock: {finishedStock[r.id]??0} unidades
+                      {(finishedStock[r.id]??0) <= (finishedMinStock[r.id]??0) && " ⚠️ Bajo mínimo"}
+                    </div>
+                    <div style={{ color: colors.textMuted, fontSize: "12px" }}>
+                      Mínimo: {finishedMinStock[r.id]??0} unidades{" "}
+                      <button onClick={() => setSettingsModal({ itemType: "finished", field: "minimumStock", itemId: r.id, itemName: r.name??r.code, currentValue: finishedMinStock[r.id]??0, unitLabel: "unidades" })} style={{ background: "transparent", border: "none", color: colors.secondary, cursor: "pointer", fontSize: "12px", padding: 0 }}>Editar</button>
+                    </div>
                   </div>
                   <button onClick={() => setAdjustModal({ itemType: "finished", itemId: r.id, itemName: r.name??r.code, currentStock: finishedStock[r.id]??0 })} style={{ background: "transparent", border: `1px solid ${colors.border}`, color: colors.text, borderRadius: "8px", padding: "4px 10px", fontSize: "12px", cursor: "pointer" }}>
                     Ajustar

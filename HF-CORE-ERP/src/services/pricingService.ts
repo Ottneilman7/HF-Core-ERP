@@ -69,8 +69,70 @@ export function calculateRecipeMaterialUnitCost(
 }
 
 // ---------------------------------------------------------------------
-// 2) Costos fijos totales mensuales (ROI + CIF + Marketing)
+// 1b) Desglose de costo línea por línea (para depurar "¿de dónde sale
+//     este número?" — usado por el simulador para mostrarle al usuario
+//     cada ingrediente y su costo, en vez de solo el total)
 // ---------------------------------------------------------------------
+
+export interface CostBreakdownLine {
+  label: string;
+  quantityUsed: number;
+  unit: string;
+  unitCost: number;   // costo por unidad de ESTA línea (rawMaterial.unitCost, o costo/unidad del semielaborado)
+  lineCost: number;   // quantityUsed * unitCost
+  children?: CostBreakdownLine[]; // solo si esta línea es un semielaborado (componentRecipeId)
+}
+
+function scaleBreakdownLines(lines: CostBreakdownLine[], factor: number): CostBreakdownLine[] {
+  return lines.map((l) => ({
+    ...l,
+    quantityUsed: l.quantityUsed * factor,
+    lineCost: l.lineCost * factor,
+    children: l.children ? scaleBreakdownLines(l.children, factor) : undefined,
+  }));
+}
+
+/**
+ * Desglosa el costo de UN LOTE completo de la receta (yieldQuantity
+ * unidades) en sus líneas de ingrediente. La suma de todos los
+ * `lineCost` (incluyendo hijos recursivos) da el mismo total que
+ * `calculateRecipeMaterialUnitCost(recipe,...) * recipe.yieldQuantity`.
+ */
+export function buildCostBreakdown(
+  recipe: Recipe,
+  rawMaterials: RawMaterial[],
+  allRecipes: Recipe[],
+  visiting: Set<string> = new Set()
+): CostBreakdownLine[] {
+  if (visiting.has(recipe.id)) {
+    throw new PricingCalculationError(`Ciclo detectado en la receta ${recipe.code}: se referencia a sí misma indirectamente.`);
+  }
+  const nextVisiting = new Set(visiting).add(recipe.id);
+  const lines: CostBreakdownLine[] = [];
+
+  for (const item of recipe.items) {
+    if (item.rawMaterialId) {
+      const rm = rawMaterials.find((m) => m.id === item.rawMaterialId);
+      if (!rm) throw new PricingCalculationError(`Materia prima no encontrada: ${item.rawMaterialId} (usada en ${recipe.code}).`);
+      lines.push({ label: rm.name, quantityUsed: item.quantity, unit: item.unit, unitCost: rm.unitCost, lineCost: item.quantity * rm.unitCost });
+    } else if (item.componentRecipeId) {
+      const component = allRecipes.find((r) => r.id === item.componentRecipeId);
+      if (!component) throw new PricingCalculationError(`Receta componente no encontrada: ${item.componentRecipeId} (usada en ${recipe.code}).`);
+      const componentUnitCost = calculateRecipeMaterialUnitCost(component, rawMaterials, allRecipes, nextVisiting);
+      const childLines = buildCostBreakdown(component, rawMaterials, allRecipes, nextVisiting);
+      const scale = item.quantity / component.yieldQuantity;
+      lines.push({
+        label: `${component.name ?? component.code} (semielaborado)`,
+        quantityUsed: item.quantity,
+        unit: item.unit,
+        unitCost: componentUnitCost,
+        lineCost: item.quantity * componentUnitCost,
+        children: scaleBreakdownLines(childLines, scale),
+      });
+    }
+  }
+  return lines;
+}
 
 export interface FixedCostsBreakdown {
   roiMonthly: number;

@@ -13,11 +13,19 @@ const TYPE_LABELS: Record<InventoryAdjustment["itemType"], string> = {
   rawMaterial: "Materia prima", semiFinished: "Semielaborado", finished: "Producto terminado",
 };
 
+const FIELD_LABELS: Record<NonNullable<InventoryAdjustment["field"]>, string> = {
+  stock: "Stock", minimumStock: "Stock mínimo", unitCost: "Costo unitario",
+};
+
+function fmtValue(value: number, field: InventoryAdjustment["field"]) {
+  return field === "unitCost" ? `$${value.toFixed(4)}` : value.toFixed(2);
+}
+
 function exportCSV(entries: InventoryAdjustment[], from: string, to: string) {
   const rows = [
-    ["Fecha","Tipo","Artículo","Stock anterior","Stock nuevo","Diferencia","Motivo","Nota"].join(","),
+    ["Fecha","Tipo","Campo","Artículo","Valor anterior","Valor nuevo","Diferencia","Motivo","Nota"].join(","),
     ...entries.map((e) => [
-      fmt(e.createdAt), TYPE_LABELS[e.itemType], `"${e.itemName}"`,
+      fmt(e.createdAt), TYPE_LABELS[e.itemType], FIELD_LABELS[e.field ?? "stock"], `"${e.itemName}"`,
       e.previousStock, e.newStock, (e.newStock - e.previousStock).toFixed(2),
       `"${e.reason}"`, `"${e.supervisorNote}"`,
     ].join(",")),
@@ -115,12 +123,12 @@ export default function AdjustmentLogPage() {
                   <div>
                     <div style={{ color: colors.text, fontWeight: 600 }}>{e.itemName}</div>
                     <div style={{ color: colors.textMuted, fontSize: "12px", marginTop: "2px" }}>
-                      {TYPE_LABELS[e.itemType]} — {fmt(e.createdAt)}
+                      {TYPE_LABELS[e.itemType]} — {FIELD_LABELS[e.field ?? "stock"]} — {fmt(e.createdAt)}
                     </div>
                     <div style={{ color: colors.textMuted, fontSize: "12px" }}>
                       Motivo: {e.reason}{e.supervisorNote && ` | Nota: ${e.supervisorNote}`}
                     </div>
-                    <div style={{ color: colors.textMuted, fontSize: "12px" }}>{e.previousStock} → {e.newStock}</div>
+                    <div style={{ color: colors.textMuted, fontSize: "12px" }}>{fmtValue(e.previousStock, e.field)} → {fmtValue(e.newStock, e.field)}</div>
                   </div>
                   <div style={{ color: diff >= 0 ? colors.primary : colors.danger, fontWeight: 700, flexShrink: 0, marginLeft: "16px", fontSize: "16px" }}>
                     {diff >= 0 ? "+" : ""}{diff.toFixed(2)}

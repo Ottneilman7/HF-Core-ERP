@@ -392,6 +392,11 @@ export default function ConfigPage() {
 
               <FormButton type="submit">Guardar Costeo y Precios</FormButton>
             </form>
+            <div style={{ marginTop: "16px" }}>
+              <Link to="/settings/pricing" style={{ color: colors.secondary, fontSize: "14px" }}>
+                → Ir al Simulador de Costeo y Precios por producto
+              </Link>
+            </div>
           </div>
         )}
       </div>
