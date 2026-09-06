@@ -5,15 +5,14 @@
  * Cualquier modificación manual de stock queda registrada con:
  * quién, cuándo, cantidad anterior, cantidad nueva y motivo.
  *
- * PIN de supervisor: viene de VITE_SUPERVISOR_PIN (variable de entorno,
- * definida en .env.local — NUNCA se commitea a git). Antes vivía como
- * texto plano en este archivo, lo cual lo exponía en el repo público de
- * GitHub. Ver .env.example para la variable requerida.
- *
- * Sigue siendo un control débil (un solo PIN compartido, sin auditoría de
- * quién lo usa más allá del campo `supervisorNote`) — el Backlog real es
- * reemplazarlo por roles de usuario reales (ver H6 en la auditoría de
- * arquitectura).
+ * BP-050: el PIN de supervisor (VITE_SUPERVISOR_PIN) queda reemplazado por
+ * el rol real del usuario, verificado en firestore.rules
+ * (`inventoryAdjustments` solo admite escritura de owner/manager). El PIN
+ * era un control débil por diseño: cualquier variable VITE_* es legible en
+ * el bundle del navegador, sin importar cuántas veces se rote. Ahora el
+ * cliente ya no decide nada — solo refleja en la UI (InventoryPage) lo que
+ * el rol del usuario permite; el servidor (Firestore Rules) es quien de
+ * verdad lo hace cumplir.
  */
 import { collection, doc, getDocs, setDoc } from "firebase/firestore";
 import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
@@ -21,15 +20,6 @@ import * as rawMaterialInventoryService from "./rawMaterialInventoryService";
 import * as recipeStockService from "./recipeStockService";
 import * as finishedGoodsInventoryService from "./finishedGoodsInventoryService";
 
-const SUPERVISOR_PIN = import.meta.env.VITE_SUPERVISOR_PIN as string | undefined;
-
-if (!SUPERVISOR_PIN && import.meta.env.DEV) {
-  console.warn(
-    "VITE_SUPERVISOR_PIN no está definido. Los ajustes de inventario que " +
-    "requieren PIN de supervisor quedarán bloqueados hasta configurarlo " +
-    "en .env.local."
-  );
-}
 
 export interface InventoryAdjustment {
   id: string;
@@ -49,11 +39,6 @@ export interface InventoryAdjustment {
 
 function adjCol() {
   return collection(db, "businesses", CURRENT_BUSINESS_ID, "inventoryAdjustments");
-}
-
-export function verifyPin(pin: string): boolean {
-  if (!SUPERVISOR_PIN) return false; // sin PIN configurado, no se autoriza nada
-  return pin === SUPERVISOR_PIN;
 }
 
 export async function getAdjustments(): Promise<InventoryAdjustment[]> {

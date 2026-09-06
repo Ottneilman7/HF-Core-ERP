@@ -1,4 +1,4 @@
-// Recipe.ts — extendido por BP-011/012 (ADR-004 + Adenda)
+// Recipe.ts — extendido por BP-011/012 (ADR-004 + Adenda), BP-055 (categoría/descripción)
 
 export interface RecipeItem {
   rawMaterialId?: string;       // materia prima directa
@@ -11,11 +11,13 @@ export interface Recipe {
   id: string;
   code: string;
   name?: string;            // nombre amigable para mostrar en UI (ej. "Granola Tradicional a Granel")
+  category?: string;        // libre, no catálogo cerrado — se adapta a cualquier negocio (BP-055)
+  description?: string;     // BP-055
   productId?: string;       // presente solo si esta receta ES un SKU vendible
   version: number;
   yieldQuantity: number;
   yieldUnit: string;
-  items: RecipeItem[];
+  items: RecipeItem[];      // vacío = producto de reventa sin fabricación propia (BP-055)
   active: boolean;
 
   // Semielaborados con inventario propio (Granola a granel, Peanut Butter):

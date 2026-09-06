@@ -94,3 +94,27 @@ export async function setUnitCost(rawMaterialId: string, newUnitCost: number): P
   if (!current) throw new Error(`Materia prima no encontrada: ${rawMaterialId}`);
   await setDoc(rawMaterialDocRef(rawMaterialId), { ...current, unitCost: newUnitCost });
 }
+
+export async function createRawMaterial(
+  input: Omit<RawMaterial, "id" | "active"> & { active?: boolean }
+): Promise<RawMaterial> {
+  if (!input.name.trim()) throw new Error("La materia prima necesita un nombre.");
+  if (!input.unit.trim()) throw new Error("La materia prima necesita una unidad de medida.");
+  if (input.unitCost < 0) throw new Error("El costo unitario no puede ser negativo.");
+  if (input.currentStock < 0) throw new Error("El stock inicial no puede ser negativo.");
+
+  const rawMaterial: RawMaterial = {
+    id: crypto.randomUUID(),
+    code: input.code?.trim() || "",
+    name: input.name.trim(),
+    category: input.category,
+    unit: input.unit,
+    supplier: input.supplier ?? "",
+    currentStock: input.currentStock,
+    minimumStock: input.minimumStock,
+    unitCost: input.unitCost,
+    active: input.active ?? true,
+  };
+  await setDoc(rawMaterialDocRef(rawMaterial.id), rawMaterial);
+  return rawMaterial;
+}

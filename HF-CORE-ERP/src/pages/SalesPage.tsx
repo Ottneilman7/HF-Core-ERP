@@ -242,6 +242,12 @@ export default function SalesPage() {
           {showNewCustomer ? "Cancelar" : "+ Nuevo cliente"}
         </FormButton>
       </div>
+      <p style={{ marginBottom: "24px" }}>
+        <Link to="/invoices" style={{ color: colors.secondary, fontSize: "13px" }}>Ver Facturas →</Link>
+        <span style={{ margin: "0 12px" }} />
+        <Link to="/payments" style={{ color: colors.secondary, fontSize: "13px" }}>Ver Cobranza →</Link>
+      </p>
+
       <p style={{ color: colors.textMuted, marginBottom: "20px" }}>
         Registra una venta: descuenta el inventario y genera la factura con IVA solo sobre los ítems gravados.
       </p>

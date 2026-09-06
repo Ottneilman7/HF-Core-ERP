@@ -105,6 +105,9 @@ export default function FinancePage() {
   return (
     <div style={{ maxWidth: "680px" }}>
       <h1 style={{ color: colors.text }}>Cobranza</h1>
+      <p style={{ marginBottom: "24px" }}>
+        <Link to="/payments" style={{ color: colors.secondary, fontSize: "13px" }}>Ver Cobranza →</Link>
+      </p>
       <p style={{ color: colors.textMuted, marginBottom: "24px" }}>Cuentas por cobrar, registro de pagos y saldos actualizados.</p>
 
       {loading && <p style={{ color: colors.textMuted }}>Cargando...</p>}

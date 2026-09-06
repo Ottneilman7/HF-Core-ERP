@@ -13,6 +13,8 @@ import { FormInput } from "../components/FormInput";
 import { FormSelect } from "../components/FormSelect";
 import { FormButton } from "../components/FormButton";
 import { colors } from "../theme/colors";
+import { useAuth } from "../contexts/AuthContext";
+import { isElevatedRole } from "../models/Membership";
 
 const WASTE_REASON_LABELS: Record<WasteReason, string> = {
   burned: "Quemado", spill: "Derrame", expired: "Vencido",
@@ -66,12 +68,14 @@ interface AdjustModalProps {
   onClose: () => void; onSaved: () => void;
 }
 function AdjustModal({ itemType, itemId, itemName, currentStock, onClose, onSaved }: AdjustModalProps) {
-  const [pin, setPin] = useState(""); const [newStock, setNewStock] = useState(currentStock);
+  const { role } = useAuth();
+  const authorized = isElevatedRole(role);
+  const [newStock, setNewStock] = useState(currentStock);
   const [reason, setReason] = useState(""); const [note, setNote] = useState("");
   const [err, setErr] = useState<string | null>(null); const [saving, setSaving] = useState(false);
 
   async function handleSave() {
-    if (!inventoryAdjustmentService.verifyPin(pin)) { setErr("PIN incorrecto."); return; }
+    if (!authorized) { setErr("Solo Dueño/Gerente pueden confirmar este ajuste."); return; }
     if (!reason.trim()) { setErr("Escribe el motivo del ajuste."); return; }
     if (newStock === currentStock) { setErr("El stock nuevo es igual al actual. Modifica la cantidad antes de confirmar."); return; }
     setSaving(true);
@@ -89,13 +93,17 @@ function AdjustModal({ itemType, itemId, itemName, currentStock, onClose, onSave
       <div style={{ background: colors.surface, borderRadius: "16px", padding: "24px", width: "360px", border: `1px solid ${colors.border}` }}>
         <h3 style={{ color: colors.text, marginTop: 0 }}>Ajustar: {itemName}</h3>
         <p style={{ color: colors.textMuted, fontSize: "13px" }}>Stock actual: <strong>{currentStock}</strong></p>
-        <FormInput label="Nuevo stock" type="number" value={newStock} onChange={(e) => setNewStock(Number(e.target.value))} min={0} />
-        <FormInput label="Motivo del ajuste" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ej. Conteo físico, corrección de error" />
-        <FormInput label="Nota adicional (opcional)" value={note} onChange={(e) => setNote(e.target.value)} />
-        <FormInput label="PIN de supervisor" type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Ingresa el PIN" />
+        {!authorized && (
+          <p style={{ color: colors.warning, fontSize: "12px" }}>
+            Tu rol actual no permite confirmar ajustes de inventario. Puedes ver los campos, pero necesitas a un Dueño/Gerente para guardar.
+          </p>
+        )}
+        <FormInput label="Nuevo stock" type="number" value={newStock} onChange={(e) => setNewStock(Number(e.target.value))} min={0} disabled={!authorized} />
+        <FormInput label="Motivo del ajuste" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ej. Conteo físico, corrección de error" disabled={!authorized} />
+        <FormInput label="Nota adicional (opcional)" value={note} onChange={(e) => setNote(e.target.value)} disabled={!authorized} />
         {err && <p style={{ color: colors.danger, fontSize: "13px" }}>⚠️ {err}</p>}
         <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-          <FormButton type="button" onClick={handleSave}>{saving ? "Guardando..." : "Confirmar ajuste"}</FormButton>
+          <FormButton type="button" onClick={handleSave} disabled={!authorized || saving}>{saving ? "Guardando..." : "Confirmar ajuste"}</FormButton>
           <FormButton type="button" variant="secondary" onClick={onClose}>Cancelar</FormButton>
         </div>
       </div>
@@ -109,21 +117,16 @@ interface SettingsAdjustModalProps {
   itemId: string; itemName: string; currentValue: number; unitLabel: string;
   onClose: () => void; onSaved: () => void;
 }
-/**
- * Modal gemelo de AdjustModal, pero para campos de CONFIGURACIÓN
- * (stock mínimo, costo unitario) en vez de stock físico. Misma exigencia
- * de seguridad: PIN de supervisor + motivo, y queda en el mismo
- * historial de auditoría (/adjustments) que los ajustes de stock —
- * antes estos campos se podían cambiar sin ninguna protección.
- */
 function SettingsAdjustModal({ itemType, field, itemId, itemName, currentValue, unitLabel, onClose, onSaved }: SettingsAdjustModalProps) {
-  const [pin, setPin] = useState(""); const [newValue, setNewValue] = useState(currentValue);
+  const { role } = useAuth();
+  const authorized = isElevatedRole(role);
+  const [newValue, setNewValue] = useState(currentValue);
   const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null); const [saving, setSaving] = useState(false);
 
   const fieldLabel = field === "minimumStock" ? "Stock mínimo" : "Costo unitario";
 
   async function handleSave() {
-    if (!inventoryAdjustmentService.verifyPin(pin)) { setErr("PIN incorrecto."); return; }
+    if (!authorized) { setErr("Solo Dueño/Gerente pueden confirmar este cambio."); return; }
     if (!reason.trim()) { setErr("Escribe el motivo del cambio."); return; }
     if (newValue === currentValue) { setErr("El valor nuevo es igual al actual. Modifícalo antes de confirmar."); return; }
     setSaving(true);
@@ -145,12 +148,16 @@ function SettingsAdjustModal({ itemType, field, itemId, itemName, currentValue, 
       <div style={{ background: colors.surface, borderRadius: "16px", padding: "24px", width: "360px", border: `1px solid ${colors.border}` }}>
         <h3 style={{ color: colors.text, marginTop: 0 }}>{fieldLabel}: {itemName}</h3>
         <p style={{ color: colors.textMuted, fontSize: "13px" }}>Valor actual: <strong>{field === "unitCost" ? `$${currentValue.toFixed(4)}` : currentValue} {unitLabel}</strong></p>
-        <FormInput label={`${fieldLabel} nuevo`} type="number" min={0} step={field === "unitCost" ? 0.0001 : 1} value={newValue} onChange={(e) => setNewValue(Number(e.target.value))} />
-        <FormInput label="Motivo del cambio" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ej. Corrección de error de captura" />
-        <FormInput label="PIN de supervisor" type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Ingresa el PIN" />
+        {!authorized && (
+          <p style={{ color: colors.warning, fontSize: "12px" }}>
+            Tu rol actual no permite confirmar este cambio. Necesitas a un Dueño/Gerente.
+          </p>
+        )}
+        <FormInput label={`${fieldLabel} nuevo`} type="number" min={0} step={field === "unitCost" ? 0.0001 : 1} value={newValue} onChange={(e) => setNewValue(Number(e.target.value))} disabled={!authorized} />
+        <FormInput label="Motivo del cambio" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="ej. Corrección de error de captura" disabled={!authorized} />
         {err && <p style={{ color: colors.danger, fontSize: "13px" }}>⚠️ {err}</p>}
         <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-          <FormButton type="button" onClick={handleSave}>{saving ? "Guardando..." : "Confirmar cambio"}</FormButton>
+          <FormButton type="button" onClick={handleSave} disabled={!authorized || saving}>{saving ? "Guardando..." : "Confirmar cambio"}</FormButton>
           <FormButton type="button" variant="secondary" onClick={onClose}>Cancelar</FormButton>
         </div>
       </div>
@@ -159,6 +166,11 @@ function SettingsAdjustModal({ itemType, field, itemId, itemName, currentValue, 
 }
 
 export default function InventoryPage() {
+  // --- ROLES Y AUTENTICACIÓN ---
+  const { role } = useAuth();
+  const canManageCatalog = role === "owner" || role === "manager" || role === "production";
+
+  // --- ESTADOS DE INVENTARIO Y BÚSQUEDA ---
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [semiFinished, setSemiFinished] = useState<Recipe[]>([]);
   const [finishedRecipes, setFinishedRecipes] = useState<Recipe[]>([]);
@@ -169,13 +181,16 @@ export default function InventoryPage() {
   const [semiGroup, setSemiGroup] = useState<string | null>(null);
   const [productGroup, setProductGroup] = useState<string | null>(null);
 
-  // Ajuste auditado de STOCK (cantidad)
-  const [adjustModal, setAdjustModal] = useState<{ itemType: "rawMaterial"|"semiFinished"|"finished"; itemId: string; itemName: string; currentStock: number } | null>(null);
+  // --- ESTADOS Y LÓGICA DE ALTA DE MATERIA PRIMA ---
+  const [newMaterialOpen, setNewMaterialOpen] = useState(false);
+  const [newMaterial, setNewMaterial] = useState({ code: "", name: "", category: "", unit: "g", supplier: "", currentStock: 0, minimumStock: 0, unitCost: 0 });
+  const [newMaterialError, setNewMaterialError] = useState<string | null>(null);
+  const [newMaterialSaving, setNewMaterialSaving] = useState(false);
 
-  // Ajuste auditado de CONFIGURACIÓN (mínimo, costo) — requiere el mismo PIN de supervisor
+  // --- ESTADOS DE MODALES Y PÉRDIDAS ---
+  const [adjustModal, setAdjustModal] = useState<{ itemType: "rawMaterial"|"semiFinished"|"finished"; itemId: string; itemName: string; currentStock: number } | null>(null);
   const [settingsModal, setSettingsModal] = useState<{ itemType: "rawMaterial"|"semiFinished"|"finished"; field: "minimumStock"|"unitCost"; itemId: string; itemName: string; currentValue: number; unitLabel: string } | null>(null);
 
-  // Merma por error
   const [wasteOpen, setWasteOpen] = useState(false);
   const [wasteItemType, setWasteItemType] = useState<WasteItemType>("rawMaterial");
   const [wasteItemId, setWasteItemId] = useState("");
@@ -202,6 +217,21 @@ export default function InventoryPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function handleCreateRawMaterial() {
+    setNewMaterialError(null);
+    setNewMaterialSaving(true);
+    try {
+      await rawMaterialInventoryService.createRawMaterial(newMaterial);
+      setNewMaterial({ code: "", name: "", category: "", unit: "g", supplier: "", currentStock: 0, minimumStock: 0, unitCost: 0 });
+      setNewMaterialOpen(false);
+      await load();
+    } catch (e) {
+      setNewMaterialError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setNewMaterialSaving(false);
+    }
+  }
 
   async function handleWaste() {
     setWasteError(null); setWasteSuccess(null);
@@ -238,6 +268,7 @@ export default function InventoryPage() {
         <Link to="/waste" style={{ color: colors.secondary, fontSize: "13px" }}>Ver historial de merma →</Link>
         {"  "}
         <Link to="/adjustments" style={{ color: colors.secondary, fontSize: "13px", marginLeft: "16px" }}>Ver historial de ajustes →</Link>
+        <Link to="/settings/recipes" style={{ color: colors.secondary, fontSize: "13px", marginLeft: "16px" }}>+ Nuevo Producto (con receta) →</Link>
       </p>
 
       {loading && <p style={{ color: colors.textMuted }}>Cargando...</p>}
@@ -274,6 +305,42 @@ export default function InventoryPage() {
               </div>
             )}
           </div>
+
+          {/* FORMULARIO ALTA DE MATERIA PRIMA (solo visible para roles autorizados) */}
+          {canManageCatalog && (
+            <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: "16px", marginBottom: "20px", overflow: "hidden" }}>
+              <button onClick={() => setNewMaterialOpen(!newMaterialOpen)} style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "20px 24px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ color: colors.primary, fontSize: "16px", fontWeight: 700 }}>➕ Alta de Materia Prima</span>
+                <span style={{ color: colors.textMuted, fontSize: "20px" }}>{newMaterialOpen ? "▲" : "▼"}</span>
+              </button>
+              {newMaterialOpen && (
+                <div style={{ padding: "0 24px 24px" }}>
+                  <FormInput label="Código (opcional)" value={newMaterial.code} onChange={(e) => setNewMaterial({ ...newMaterial, code: e.target.value })} placeholder="ej. MP-001" />
+                  <FormInput label="Nombre de la materia prima" value={newMaterial.name} onChange={(e) => setNewMaterial({ ...newMaterial, name: e.target.value })} placeholder="ej. Harina de Avena" />
+                  <FormInput label="Categoría (opcional)" value={newMaterial.category} onChange={(e) => setNewMaterial({ ...newMaterial, category: e.target.value })} placeholder="ej. Granos / Harinas" />
+                  <FormSelect label="Unidad de medida" value={newMaterial.unit} onChange={(e) => setNewMaterial({ ...newMaterial, unit: e.target.value })}>
+                    <option value="g">Gramos (g)</option>
+                    <option value="kg">Kilogramos (kg)</option>
+                    <option value="ml">Mililitros (ml)</option>
+                    <option value="L">Litros (L)</option>
+                    <option value="ud">Unidades (ud)</option>
+                  </FormSelect>
+                  <FormInput label="Proveedor (opcional)" value={newMaterial.supplier} onChange={(e) => setNewMaterial({ ...newMaterial, supplier: e.target.value })} />
+                  <FormInput label="Stock inicial" type="number" min={0} value={newMaterial.currentStock} onChange={(e) => setNewMaterial({ ...newMaterial, currentStock: Number(e.target.value) })} />
+                  <FormInput label="Stock mínimo" type="number" min={0} value={newMaterial.minimumStock} onChange={(e) => setNewMaterial({ ...newMaterial, minimumStock: Number(e.target.value) })} />
+                  <FormInput label="Costo unitario ($)" type="number" step="0.0001" min={0} value={newMaterial.unitCost} onChange={(e) => setNewMaterial({ ...newMaterial, unitCost: Number(e.target.value) })} />
+
+                  <div style={{ marginTop: "16px" }}>
+                    <FormButton type="button" onClick={handleCreateRawMaterial} disabled={newMaterialSaving}>
+                      {newMaterialSaving ? "Guardando..." : "Crear Materia Prima"}
+                    </FormButton>
+                  </div>
+
+                  {newMaterialError && <p style={{ color: colors.danger, fontSize: "13px", marginTop: "8px" }}>⚠️ {newMaterialError}</p>}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* MATERIA PRIMA */}
           <Section title="Materia Prima" names={rawMaterials.map((m)=>m.name)} activeGroup={rawGroup} onSelectGroup={setRawGroup}>

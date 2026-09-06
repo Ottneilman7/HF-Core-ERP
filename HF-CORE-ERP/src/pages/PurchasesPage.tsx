@@ -165,6 +165,12 @@ export default function PurchasesPage() {
           {showNewSupplier ? "Cancelar" : "+ Nuevo proveedor"}
         </FormButton>
       </div>
+      <p style={{ marginBottom: "24px" }}>
+        <Link to="/orders" style={{ color: colors.secondary, fontSize: "13px" }}>Ver Órdenes de Compra →</Link>
+        <span style={{ margin: "0 12px" }} />
+        <Link to="/purchases/payments" style={{ color: colors.secondary, fontSize: "13px" }}>Ver Pagos a Proveedores →</Link>
+      </p>
+
       <p style={{ color: colors.textMuted, marginBottom: "20px" }}>
         Proveedores, órdenes de compra y recepción de mercancía.{" "}
         <Link to="/purchases/payments" style={{ color: colors.secondary }}>→ Cuentas por Pagar</Link>
