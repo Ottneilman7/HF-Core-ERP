@@ -6,3 +6,7 @@
 *.tmp
 node_modules/
 .DS_Store
+Mi_ERP.txt
+Documentacion_ERP.txt
+.claude/
+repomix-output.xml
